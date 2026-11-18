@@ -73,7 +73,7 @@ end
 
 local function pick(s, items, prompt, format, callback)
   if #items == 0 then
-    s:notice("No " .. prompt:lower() .. " available", "warn")
+    s:notice("No " .. prompt:lower() .. " available", "warning")
     return
   end
   vim.ui.select(items, { prompt = prompt, format_item = format }, function(item)
@@ -442,7 +442,7 @@ local function bash(s, text)
     return
   end
   if s.bash and s.bash.running then
-    s:notice("A shell command is already running. Abort it first.", "warn")
+    s:notice("A shell command is already running. Abort it first.", "warning")
     return
   end
   local execution = { command = command, output = "", running = true, excludeFromContext = excluded }
@@ -551,7 +551,7 @@ function M.run(s, text)
   elseif name == "copy" then
     request(s, "get_last_assistant_text", {}, nil, function(data)
       if type(data.text) ~= "string" then
-        s:notice("No assistant text to copy", "warn")
+        s:notice("No assistant text to copy", "warning")
         return
       end
       vim.fn.setreg('"', data.text, "v")
@@ -560,7 +560,7 @@ function M.run(s, text)
       s:notice(
         ok and "Copied last assistant response to clipboard and unnamed register"
           or "Copied to unnamed register; clipboard unavailable: " .. tostring(err),
-        ok and "info" or "warn"
+        ok and "info" or "warning"
       )
     end)
   elseif name == "export" then
