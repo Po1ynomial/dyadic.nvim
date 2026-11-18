@@ -336,6 +336,10 @@ function M.set_draft(s, text)
   end
 end
 
+-- Slash commands are only recognized at the start of the draft line; elsewhere, a
+-- leading slash is an absolute path. Pass the decision from findstart to the match call.
+local complete_command = false
+
 function M.complete(findstart, base)
   local buf = api.nvim_get_current_buf()
   local s = views[buf]
@@ -344,14 +348,15 @@ function M.complete(findstart, base)
   end
   if findstart == 1 then
     local line = api.nvim_get_current_line():sub(1, api.nvim_win_get_cursor(0)[2])
-    if line:sub(1, 1) == "/" then
+    complete_command = line:sub(1, 1) == "/"
+    if complete_command then
       return 0
     end
     local token = line:match("%S*$") or ""
     return #line - #token
   end
   local result = {}
-  if base:sub(1, 1) == "/" then
+  if complete_command then
     return require("dyadic.commands").complete(s, base)
   end
   local reference = base:sub(1, 1) == "@"
