@@ -434,7 +434,8 @@ function Session:event(record)
   elseif kind == "compaction_end" then
     self.state.isCompacting = false
     self.history_version = self.history_version + 1
-    self:sync_history()
+    -- compaction_start forced active; only pi knows whether a run continues.
+    self:refresh()
     if record.errorMessage then
       self:notice(record.errorMessage, "error")
     end
