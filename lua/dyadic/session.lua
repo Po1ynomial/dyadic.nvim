@@ -342,6 +342,8 @@ function Session:action(name)
   elseif name == "toggle_tools" then
     self.expand_tools = not self.expand_tools
     self:render()
+  elseif name == "focus_draft" or name == "focus_transcript" then
+    View.focus(self, name == "focus_draft")
   elseif name == "cycle_thinking" or name == "cycle_model" then
     self:request(name == "cycle_model" and "cycle_model" or "cycle_thinking_level", {}, function(err)
       if not err then

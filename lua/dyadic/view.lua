@@ -161,7 +161,7 @@ local actions = {
   focus_transcript = { "FocusTranscript", "<localleader>r" },
 }
 
-local function focus(s, draft)
+function M.focus(s, draft)
   local buf = draft and s.draft or s.buf
   for _, win in ipairs(api.nvim_tabpage_list_wins(0)) do
     if api.nvim_win_get_buf(win) == buf then
@@ -198,10 +198,6 @@ function M.bind(s)
             s:abort()
           elseif action == "dequeue" then
             s:dequeue()
-          elseif action == "focus_draft" then
-            focus(s, true)
-          elseif action == "focus_transcript" then
-            focus(s, false)
           else
             s:action(action)
           end
