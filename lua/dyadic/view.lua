@@ -582,6 +582,9 @@ function M.render(s)
       end
     elseif role == "bashExecution" then
       bash(message)
+    elseif role == "usage" then
+      heading("[usage] " .. one_line(message.content), "Comment")
+      append("")
     elseif role == "compactionSummary" or role == "branchSummary" then
       heading(role == "compactionSummary" and "## Compaction summary" or "## Branch summary")
       if message.tokensBefore then
