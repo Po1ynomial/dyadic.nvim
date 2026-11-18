@@ -3,6 +3,7 @@ local defaults = {
   cmd = { "pi" },
   args = {},
   draft_height = 6,
+  completion = true,
   mappings = {},
 }
 local config = vim.deepcopy(defaults)
@@ -13,6 +14,7 @@ function M.setup(opts)
   vim.validate("cmd", config.cmd, "table")
   vim.validate("args", config.args, "table")
   vim.validate("draft_height", config.draft_height, "number")
+  vim.validate("completion", config.completion, "boolean")
   vim.validate("mappings", config.mappings, "table")
   assert(
     #config.cmd > 0 and config.draft_height >= 1,
