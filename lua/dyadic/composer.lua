@@ -163,6 +163,14 @@ function M.resize(agent)
   if api.nvim_win_get_height(state.win) ~= height then
     api.nvim_win_set_config(state.win, { height = height })
   end
+  -- A window that grew after scrolling stays scrolled; show everything once it fits.
+  local info = vim.fn.getwininfo(state.win)[1] or {}
+  if api.nvim_win_text_height(state.win, {}).all <= (info.height or 0) and (info.topline or 1) > 1 then
+    api.nvim_win_call(state.win, function()
+      -- topfill is limited to the virtual lines above line 1.
+      vim.fn.winrestview({ topline = 1, topfill = 1000 })
+    end)
+  end
 end
 
 local function composer_options(win)
