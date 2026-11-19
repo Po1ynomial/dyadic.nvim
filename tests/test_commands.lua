@@ -35,6 +35,45 @@ T["unsupported TUI commands are rejected locally"] = function()
   eq(child.lua_get("#_G.S.messages"), 0)
 end
 
+T["/resume lists sessions for this cwd and rereads only changed files"] = function()
+  local dir = vim.fn.tempname() .. "-sessions"
+  vim.fn.mkdir(dir, "p")
+  local function session(name, cwd, prompt)
+    local path = dir .. "/" .. name .. ".jsonl"
+    vim.fn.writefile({
+      vim.json.encode({ type = "session", id = name, cwd = cwd, timestamp = "2026-01-01" }),
+      vim.json.encode({ type = "message", id = "m", message = { role = "user", content = prompt } }),
+    }, path)
+    return path
+  end
+  local here = session("a", "/work", "first prompt")
+  session("b", "/elsewhere", "other project")
+  -- The active session's directory is authoritative, so keep the fake's file there too.
+  child.open({ state = { sessionFile = here } }, { args = { "--session-dir", dir } })
+  child.lua([[
+    _G.opened = 0
+    local open = vim.uv.fs_open
+    vim.uv.fs_open = function(path, ...)
+      if path:match("%.jsonl$") then
+        _G.opened = _G.opened + 1
+      end
+      return open(path, ...)
+    end
+    vim.ui.select = function(items, opts)
+      _G.picked = vim.tbl_map(opts.format_item, items)
+    end
+  ]])
+  child.lua("require('dyadic').command('resume')")
+  eq(#child.lua_get("_G.picked"), 1)
+  eq(child.lua_get("_G.picked[1]"):match("^first prompt") ~= nil, true)
+  eq(child.lua_get("_G.opened"), 2)
+  child.lua("require('dyadic').command('resume')")
+  eq(child.lua_get("_G.opened"), 2)
+  vim.uv.fs_utime(here, os.time() + 60, os.time() + 60)
+  child.lua("require('dyadic').command('resume')")
+  eq(child.lua_get("_G.opened"), 3)
+end
+
 T["/hotkeys points to native mapping lists"] = function()
   child.open()
   child.lua("_G.S:set_draft('/hotkeys'); _G.S:submit()")

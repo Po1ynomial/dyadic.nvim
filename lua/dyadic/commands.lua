@@ -241,6 +241,23 @@ local function metadata(path)
   return not first and info.id and info or nil
 end
 
+-- Session files are append-only, so size and modification time identify a version.
+local metadata_cache = {}
+local function cached_metadata(path)
+  local stat = uv.fs_stat(path)
+  if not stat then
+    metadata_cache[path] = nil
+    return nil
+  end
+  local version = table.concat({ stat.size, stat.mtime.sec, stat.mtime.nsec }, ":")
+  local hit = metadata_cache[path]
+  if not hit or hit.version ~= version then
+    hit = { version = version, info = metadata(path) or false }
+    metadata_cache[path] = hit
+  end
+  return hit.info or nil
+end
+
 local function discover(s, all)
   local directory, root = storage(s)
   local found = {}
@@ -258,7 +275,7 @@ local function discover(s, all)
       if kind == "directory" and recursive then
         scan(path, false)
       elseif kind == "file" and name:match("%.jsonl$") then
-        local item = metadata(path)
+        local item = cached_metadata(path)
         if item and (all or resolve(item.cwd, s.cwd) == resolve(s.cwd, s.cwd)) then
           found[#found + 1] = item
         end
@@ -504,7 +521,7 @@ function M.run(s, text)
   elseif name == "resume" then
     if argument ~= "" and argument ~= "all" then
       local path = resolve(argument, s.cwd)
-      if not metadata(path) then
+      if not cached_metadata(path) then
         s:notice("Not a readable pi session file: " .. path, "error")
       else
         switched(s, "switch_session", { sessionPath = path }, text)
