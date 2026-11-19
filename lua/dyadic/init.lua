@@ -2,10 +2,10 @@ local M = {}
 local defaults = {
   cmd = { "pi" },
   args = {},
-  draft_height = 6,
+  placement = "free",
+  composer = { min_height = 3, max_height = 0.4 },
   completion = true,
   mappings = {},
-  layout = nil,
 }
 local config = vim.deepcopy(defaults)
 local agents, next_id, last = {}, 0, nil
@@ -14,13 +14,18 @@ function M.setup(opts)
   config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})
   vim.validate("cmd", config.cmd, "table")
   vim.validate("args", config.args, "table")
-  vim.validate("draft_height", config.draft_height, "number")
+  vim.validate("placement", config.placement, function(value)
+    return value == "free"
+  end, '"free"')
+  vim.validate("composer", config.composer, "table")
+  vim.validate("composer.min_height", config.composer.min_height, "number")
+  vim.validate("composer.max_height", config.composer.max_height, "number")
   vim.validate("completion", config.completion, "boolean")
   vim.validate("mappings", config.mappings, "table")
-  vim.validate("layout", config.layout, "function", true)
+  assert(#config.cmd > 0, "dyadic: cmd must not be empty")
   assert(
-    #config.cmd > 0 and config.draft_height >= 1,
-    "dyadic: cmd must not be empty and draft_height must be positive"
+    config.composer.min_height >= 1 and config.composer.max_height > 0,
+    "dyadic: composer heights must be positive"
   )
 end
 
@@ -101,11 +106,11 @@ function M.action(name)
 end
 
 function M.command(text)
-  if text == "" or text == "new" then
+  if text == "new" then
     M.open()
     return
   end
-  if text == "show" then
+  if text == "" then
     M.show()
     return
   end
@@ -127,20 +132,14 @@ function M.command(text)
     end)
     return
   end
-  local agent = M.get()
-  if not agent then
+  local agent = M.get() or last
+  if not agent or agent.closed then
     vim.notify("Dyadic: open an agent first with :Dyadic", vim.log.levels.WARN)
     return
   end
   if text == "composer" then
-    local wins = vim.fn.win_findbuf(agent.composer_buf)
-    if #wins == 0 then
-      M.show(agent)
-      wins = vim.fn.win_findbuf(agent.composer_buf)
-    end
-    if wins[1] then
-      vim.api.nvim_set_current_win(wins[1])
-    end
+    last = agent
+    require("dyadic.view").focus(agent, true)
   elseif text == "abort" or text == "close" or text == "submit" or text == "follow_up" or text == "dequeue" then
     M.action(text)
   else
@@ -149,7 +148,7 @@ function M.command(text)
 end
 
 function M.complete(prefix)
-  local items = { "new", "show", "agents", "composer", "abort", "close", "submit", "follow_up", "dequeue" }
+  local items = { "new", "agents", "composer", "abort", "close", "submit", "follow_up", "dequeue" }
   vim.list_extend(items, require("dyadic.commands").names)
   local result, seen = {}, {}
   for _, item in ipairs(items) do

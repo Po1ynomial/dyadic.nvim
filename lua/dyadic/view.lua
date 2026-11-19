@@ -3,6 +3,7 @@ local api = vim.api
 local text = require("dyadic.text")
 local History = require("dyadic.history")
 local Detail = require("dyadic.detail")
+local Composer = require("dyadic.composer")
 local lines_of, one_line, sorted_keys = text.lines_of, text.one_line, text.sorted_keys
 
 local views = {}
@@ -10,7 +11,7 @@ local window_states = {}
 local owned_options = { "wrap", "linebreak", "number", "relativenumber", "signcolumn", "statusline" }
 local rows_ns = api.nvim_create_namespace("dyadic_history")
 local widgets_ns = api.nvim_create_namespace("dyadic_widgets")
-local render_widgets
+local render_widgets, statuslines
 
 -- Plugins that resolve the parser from 'filetype' (markdown renderers) find markdown too.
 vim.treesitter.language.register("markdown", { "dyadic", "dyadic_composer" })
@@ -57,6 +58,14 @@ local function restore_window(win)
   end
 end
 
+local function apply_history_options(win)
+  vim.wo[win].wrap = true
+  vim.wo[win].linebreak = true
+  vim.wo[win].number = false
+  vim.wo[win].relativenumber = false
+  vim.wo[win].signcolumn = "no"
+end
+
 local function window_options(win)
   if not window_states[win] then
     local saved = { buf = api.nvim_win_get_buf(win), options = {} }
@@ -71,11 +80,21 @@ local function window_options(win)
     end
     window_states[win] = saved
   end
-  vim.wo[win].wrap = true
-  vim.wo[win].linebreak = true
-  vim.wo[win].number = false
-  vim.wo[win].relativenumber = false
-  vim.wo[win].signcolumn = "no"
+  apply_history_options(win)
+end
+
+-- A window dyadic created now shows the history; leaving it restores global defaults.
+function M.adopt(win)
+  local saved = { buf = api.nvim_win_get_buf(win), options = {} }
+  for _, name in ipairs(owned_options) do
+    saved.options[name] = api.nvim_get_option_value(name, { scope = "global" })
+  end
+  window_states[win] = saved
+  apply_history_options(win)
+  local agent = views[saved.buf]
+  if agent then
+    M.render(agent)
+  end
 end
 
 -- Action name -> { <Plug> suffix, default key, buffers that get the default key }.
@@ -103,22 +122,38 @@ M.actions = actions
 
 local history_actions = { toggle_group = true, detail = true, next_message = true, prev_message = true }
 
-function M.focus(agent, composer)
-  local buf = composer and agent.composer_buf or agent.history_buf
+-- A window in the current tab that shows the agent's history, preferring the anchor.
+local function history_window(agent)
+  local anchor = Composer.anchor(agent)
+  if anchor and api.nvim_win_get_tabpage(anchor) == api.nvim_get_current_tabpage() then
+    return anchor
+  end
+  if api.nvim_get_current_buf() == agent.history_buf then
+    return api.nvim_get_current_win()
+  end
   for _, win in ipairs(api.nvim_tabpage_list_wins(0)) do
-    if api.nvim_win_get_buf(win) == buf then
-      api.nvim_set_current_win(win)
-      return
+    if api.nvim_win_get_buf(win) == agent.history_buf and api.nvim_win_get_config(win).relative == "" then
+      return win
     end
   end
-  M.show(agent)
-  if not composer then
-    for _, win in ipairs(api.nvim_tabpage_list_wins(0)) do
-      if api.nvim_win_get_buf(win) == agent.history_buf then
-        api.nvim_set_current_win(win)
-        return
-      end
-    end
+end
+
+function M.focus(agent, composer)
+  local win = history_window(agent)
+  if not win then
+    M.show(agent)
+    win = history_window(agent)
+  end
+  if not win then
+    return
+  end
+  if composer then
+    -- From a history window, the composer opens below that window.
+    Composer.attach(agent, win, true)
+    render_widgets(agent)
+    statuslines(agent)
+  else
+    api.nvim_set_current_win(win)
   end
 end
 
@@ -276,7 +311,7 @@ function M.new(agent)
       if window_states[win] and window_states[win].buf ~= ev.buf then
         restore_window(win)
       end
-      if (ev.buf == agent.history_buf or ev.buf == agent.composer_buf) and not window_states[win] then
+      if ev.buf == agent.history_buf and not window_states[win] then
         window_options(win)
       end
       -- Hidden histories are not rendered; catch up when one is shown again.
@@ -288,7 +323,7 @@ function M.new(agent)
   api.nvim_create_autocmd("BufWinLeave", {
     group = agent._view.group,
     callback = function(ev)
-      if ev.buf ~= agent.history_buf and ev.buf ~= agent.composer_buf then
+      if ev.buf ~= agent.history_buf then
         return
       end
       local win = api.nvim_get_current_win()
@@ -308,6 +343,7 @@ function M.new(agent)
     callback = function(ev)
       if ev.buf == agent.composer_buf and not agent.closed then
         render_widgets(agent)
+        Composer.resize(agent)
       end
     end,
   })
@@ -316,30 +352,23 @@ function M.new(agent)
   return agent.history_buf, agent.composer_buf
 end
 
--- Default layout: history in the current window, composer in a split below it.
-local function split_layout(agent)
-  local history_win, composer_win
-  for _, win in ipairs(api.nvim_tabpage_list_wins(0)) do
-    local buf = api.nvim_win_get_buf(win)
-    if buf == agent.history_buf then
-      history_win = win
-    end
-    if buf == agent.composer_buf then
-      composer_win = win
-    end
+-- Free placement: an existing history window in this tab, else the current window. A
+-- composer or floating window is not replaced; its tab gets a new split instead.
+local function free_placement(agent)
+  local win = history_window(agent)
+  if win then
+    return win
   end
-  if not history_win then
-    history_win = api.nvim_get_current_win()
-    api.nvim_win_set_buf(history_win, agent.history_buf)
+  win = api.nvim_get_current_win()
+  local other = views[api.nvim_win_get_buf(win)]
+  if other and Composer.window(other) == win then
+    win = Composer.anchor(other) or win
   end
-  if not composer_win then
-    composer_win = api.nvim_open_win(agent.composer_buf, false, {
-      split = "below",
-      win = history_win,
-      height = math.max(1, agent.config.draft_height or 6),
-    })
+  if api.nvim_win_get_config(win).relative ~= "" or vim.wo[win].winfixbuf then
+    win = api.nvim_open_win(agent.history_buf, true, { split = "above", win = -1 })
   end
-  api.nvim_set_current_win(composer_win)
+  api.nvim_win_set_buf(win, agent.history_buf)
+  return win
 end
 
 function M.show(agent)
@@ -354,15 +383,13 @@ function M.show(agent)
     agent.composer_buf = create_buffer(agent, "dyadic_composer", "composer", true)
     M.bind(agent)
   end
-  local layout = agent.config.layout or split_layout
-  layout(agent)
-  for _, buf in ipairs({ agent.history_buf, agent.composer_buf }) do
-    for _, win in ipairs(vim.fn.win_findbuf(buf)) do
-      if not window_states[win] then
-        window_options(win)
-      end
+  local anchor = free_placement(agent)
+  for _, win in ipairs(vim.fn.win_findbuf(agent.history_buf)) do
+    if not window_states[win] then
+      window_options(win)
     end
   end
+  Composer.attach(agent, anchor, true)
   M.render(agent)
 end
 
@@ -489,6 +516,7 @@ render_widgets = function(agent)
       { virt_lines = below }
     )
   end
+  Composer.resize(agent)
   for win, saved in pairs(snapshots) do
     if saved.topline == 1 then
       saved.topfill = math.min(#above, math.max(0, api.nvim_win_get_height(win) - saved.lnum))
@@ -499,7 +527,7 @@ render_widgets = function(agent)
   end
 end
 
-local function statuslines(agent)
+statuslines = function(agent)
   local status = (" " .. footer(agent)):gsub("%%", "%%%%")
   for _, win in ipairs(vim.fn.win_findbuf(agent.history_buf)) do
     if valid_win(win) then
@@ -599,6 +627,7 @@ function M.dispose(agent)
   agent._view.disposed = true
   require("dyadic.extension_ui").dispose_dialogs(agent)
   Detail.dispose(agent)
+  Composer.dispose(agent)
   views[agent.history_buf], views[agent.composer_buf] = nil, nil
   for win, saved in pairs(window_states) do
     if saved.buf == agent.history_buf or saved.buf == agent.composer_buf then

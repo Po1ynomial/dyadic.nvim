@@ -86,6 +86,8 @@ end)
 -- Headless Neovim also checks timestamps on its own, so observe dyadic's checktime calls.
 T("file-changing tools check only unmodified file buffers", function()
   local agent = H.open()
+  -- Files open in their own tab; the composer window refuses other buffers.
+  vim.cmd.tabnew()
   local clean, dirty = vim.fn.tempname() .. "-clean.txt", vim.fn.tempname() .. "-dirty.txt"
   vim.fn.writefile({ "old" }, clean)
   vim.fn.writefile({ "old" }, dirty)
