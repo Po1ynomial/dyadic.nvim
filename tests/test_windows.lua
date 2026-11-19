@@ -96,6 +96,23 @@ T("windows split into the pair are moved out", function()
   ok(attached(agent), vim.inspect(vim.fn.winlayout()))
 end)
 
+T("a moved-out window goes beside another window outside the pair", function()
+  vim.cmd("vsplit")
+  local other = api.nvim_list_wins()[2]
+  local agent = H.open(nil, { placement = "free" })
+  local anchor = Composer.anchor(agent)
+  api.nvim_set_current_win(anchor)
+  vim.cmd("vsplit")
+  local new = api.nvim_get_current_win()
+  H.settle()
+  ok(attached(agent), vim.inspect(vim.fn.winlayout()))
+  -- Split to the left of the other window, so it sits between the pair and that window.
+  local col = function(win)
+    return api.nvim_win_get_position(win)[2]
+  end
+  ok(col(anchor) < col(new) and col(new) < col(other), vim.inspect(vim.fn.winlayout()))
+end)
+
 T("the composer refuses other buffers", function()
   H.open()
   local ok_edit, err = pcall(vim.cmd.edit, vim.fn.tempname())

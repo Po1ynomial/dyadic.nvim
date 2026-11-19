@@ -114,13 +114,25 @@ end
 -- the editor edge away from the sidebar.
 function M.move_out(win, vertical)
   local tab = api.nvim_win_get_tabpage(win)
+  local function usable(target)
+    return valid_win(target)
+      and target ~= win
+      and api.nvim_win_get_tabpage(target) == tab
+      and not is_float(target)
+      and not pair_member(target)
+      and not sidebar().contains(target)
+  end
   local target = outside[tab]
-  local usable = valid_win(target)
-    and target ~= win
-    and api.nvim_win_get_tabpage(target) == tab
-    and not pair_member(target)
-    and not sidebar().contains(target)
-  if usable then
+  if not usable(target) then
+    target = nil
+    for _, candidate in ipairs(api.nvim_tabpage_list_wins(tab)) do
+      if usable(candidate) then
+        target = candidate
+        break
+      end
+    end
+  end
+  if target then
     pcall(api.nvim_win_set_config, win, { split = vertical and "left" or "above", win = target })
     return
   end
