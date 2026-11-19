@@ -386,6 +386,31 @@ function Session:action(name)
   end
 end
 
+-- Tools that cannot change files. Anything else, including bash and custom tools, may.
+local read_only_tools = { read = true, grep = true, find = true, ls = true }
+
+-- Reload buffers whose files the agent may have changed. Buffers with unsaved changes are
+-- skipped so no prompt interrupts typing; 'autoread' still decides whether reloading asks.
+function Session:check_files()
+  if self.checking_files then
+    return
+  end
+  self.checking_files = true
+  vim.defer_fn(function()
+    self.checking_files = false
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if
+        vim.api.nvim_buf_is_loaded(buf)
+        and vim.bo[buf].buftype == ""
+        and not vim.bo[buf].modified
+        and vim.api.nvim_buf_get_name(buf) ~= ""
+      then
+        pcall(vim.cmd, "silent! checktime " .. buf)
+      end
+    end
+  end, 25)
+end
+
 function Session:event(record)
   local kind = record.type
   if kind == "extension_ui_request" then
@@ -453,6 +478,9 @@ function Session:event(record)
       tool.partialResult = record.partialResult
     else
       tool.running, tool.result, tool.isError, tool.durationMs = false, record.result, record.isError, record.durationMs
+      if not read_only_tools[record.toolName] then
+        self:check_files()
+      end
     end
   elseif kind == "queue_update" then
     self.queue = { steering = record.steering or {}, followUp = record.followUp or {} }
