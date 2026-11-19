@@ -15,18 +15,26 @@ local render_widgets
 -- Plugins that resolve the parser from 'filetype' (markdown renderers) find markdown too.
 vim.treesitter.language.register("markdown", { "dyadic", "dyadic_input" })
 
-for name, link in pairs({
-  DyadicTitle = "Title",
-  DyadicRole = "Title",
-  DyadicMeta = "Comment",
-  DyadicActivity = "Comment",
-  DyadicTool = "Special",
-  DyadicRunning = "DiagnosticWarn",
-  DyadicError = "DiagnosticError",
-  DyadicQueue = "DiagnosticInfo",
-}) do
-  api.nvim_set_hl(0, name, { link = link, default = true })
+local function define_highlights()
+  for name, link in pairs({
+    DyadicTitle = "Title",
+    DyadicRole = "Title",
+    DyadicMeta = "Comment",
+    DyadicActivity = "Comment",
+    DyadicTool = "Special",
+    DyadicRunning = "DiagnosticWarn",
+    DyadicError = "DiagnosticError",
+    DyadicQueue = "DiagnosticInfo",
+  }) do
+    api.nvim_set_hl(0, name, { link = link, default = true })
+  end
 end
+define_highlights()
+-- :colorscheme runs :hi clear, which drops these links.
+api.nvim_create_autocmd("ColorScheme", {
+  group = api.nvim_create_augroup("DyadicHighlights", { clear = true }),
+  callback = define_highlights,
+})
 
 local function valid_buf(buf)
   return buf and api.nvim_buf_is_valid(buf)
