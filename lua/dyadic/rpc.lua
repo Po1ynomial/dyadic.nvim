@@ -442,6 +442,7 @@ function M.new(opts)
   local ok, process, pid = pcall(uv.spawn, opts.cmd[1], {
     args = args,
     cwd = opts.cwd,
+    env = opts.env,
     stdio = { self._stdin, self._stdout_pipe, self._stderr_pipe },
   }, function(code, signal)
     self._exited = true

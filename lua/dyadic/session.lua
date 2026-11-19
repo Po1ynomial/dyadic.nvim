@@ -35,6 +35,7 @@ function Session.new(id, config, on_close)
   local rpc, err = require("dyadic.rpc").new({
     cmd = cmd,
     cwd = self.cwd,
+    env = Session.environment(),
     on_record = function(record)
       if not self.closed then
         self:event(record)
@@ -73,6 +74,18 @@ function Session.new(id, config, on_close)
     self:refresh()
   end
   return self
+end
+
+-- Neovim sets $NVIM only for jobstart()/terminal children, so an inherited value names an
+-- outer instance. Remove it so pi's tools cannot attach to the wrong Neovim.
+function Session.environment()
+  local env = {}
+  for name, value in pairs(vim.fn.environ()) do
+    if name ~= "NVIM" and name ~= "NVIM_LISTEN_ADDRESS" then
+      env[#env + 1] = name .. "=" .. value
+    end
+  end
+  return env
 end
 
 function Session:request(kind, fields, callback)

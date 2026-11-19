@@ -62,6 +62,12 @@ T["a crash notifies once with the stderr log path"] = function()
   eq(child.lua_get("_G.S.status"), "Pi exited (code 3)")
 end
 
+T["an inherited NVIM is not passed to pi"] = function()
+  child.lua("vim.env.NVIM = '/tmp/outer-nvim.sock'")
+  child.open()
+  eq(child.lua_get("_G.S.state._env_nvim"), vim.NIL)
+end
+
 T["closing ends the pi process"] = function()
   child.open()
   local pid = child.lua_get("_G.S.rpc.pid")
