@@ -112,15 +112,19 @@ function H.history(agent)
   return vim.api.nvim_buf_get_lines(agent.history_buf, 0, -1, false)
 end
 
--- Overlay rows as { line = 1-based, text = concatenated chunks }.
+local function joined(chunks)
+  local parts = {}
+  for _, chunk in ipairs(chunks) do
+    parts[#parts + 1] = chunk[1]
+  end
+  return table.concat(parts)
+end
+
+-- Overlay rows as { line = 1-based, text = concatenated chunks, right = right-aligned text }.
 function H.rows(agent)
   local out = {}
   for _, row in ipairs(agent._view.model.rows) do
-    local parts = {}
-    for _, chunk in ipairs(row.chunks) do
-      parts[#parts + 1] = chunk[1]
-    end
-    out[#out + 1] = { line = row.line + 1, text = table.concat(parts) }
+    out[#out + 1] = { line = row.line + 1, text = joined(row.chunks), right = row.right and joined(row.right) or nil }
   end
   return out
 end

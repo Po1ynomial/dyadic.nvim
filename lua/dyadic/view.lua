@@ -28,6 +28,12 @@ local function define_highlights()
     DyadicRunning = "DiagnosticWarn",
     DyadicError = "DiagnosticError",
     DyadicQueue = "DiagnosticInfo",
+    DyadicSpeakerUser = "Identifier",
+    DyadicSpeakerAssistant = "Title",
+    DyadicGroupBar = "DiagnosticHint",
+    DyadicShellBar = "Comment",
+    DyadicCompaction = "Special",
+    DyadicBranch = "DiagnosticWarn",
     DyadicFooter = "Comment",
     DyadicSpinner = "DiagnosticInfo",
     DyadicPhase = "Comment",
@@ -211,7 +217,7 @@ end
 
 local function jump_message(agent, forward)
   local cursor = api.nvim_win_get_cursor(0)[1] - 1
-  local roles = agent._view.model and agent._view.model.roles or {}
+  local roles = agent._view.model and agent._view.model.speakers or {}
   local target
   if forward then
     for _, line in ipairs(roles) do
@@ -258,7 +264,10 @@ function M.action(agent, name)
     end
   elseif name == "detail" then
     if row and row.kind == "group" then
-      toggle_group(agent, row.group)
+      -- K always shows more: it expands a collapsed group and leaves an open one.
+      if not row.open then
+        toggle_group(agent, row.group)
+      end
     elseif not (row and row.key and Detail.open(agent, row.key)) then
       native("K")
     end
@@ -547,10 +556,12 @@ local function composer_bar(agent)
   end
 end
 
--- The spinner turns while the agent works and its composer is shown.
+-- While the agent works and is shown, the spinner turns and the run timer in the history
+-- counts up once a second.
 local function spin(agent)
   local view = agent._view
-  local wanted = Bars.busy(agent) and Composer.window(agent) ~= nil and not agent.closed
+  local shown = Composer.window(agent) ~= nil or #vim.fn.win_findbuf(agent.history_buf) > 0
+  local wanted = Bars.busy(agent) and shown and not agent.closed
   if wanted and not view.spinner then
     view.frame = 1
     view.spinner = vim.uv.new_timer()
@@ -561,6 +572,9 @@ local function spin(agent)
         if view.spinner then
           view.frame = view.frame % #Bars.SPINNER + 1
           composer_bar(agent)
+          if view.frame == 1 and agent.active then
+            agent:render()
+          end
         end
       end)
     )
@@ -588,9 +602,9 @@ statuslines = function(agent)
     if statusline then
       set_option(win, "statusline", Bars.statusline(agent, "composer"))
     end
-    spin(agent)
     composer_bar(agent)
   end
+  spin(agent)
 end
 
 -- Write only the changed line range, then re-apply overlay rows.
@@ -631,6 +645,13 @@ local function write(agent, model)
       virt_text_pos = "overlay",
       hl_mode = "combine",
     })
+    if row.right then
+      api.nvim_buf_set_extmark(buf, rows_ns, row.line, 0, {
+        virt_text = row.right,
+        virt_text_pos = "right_align",
+        hl_mode = "combine",
+      })
+    end
   end
   agent._view.rows_by_line = by_line
   -- Follow output only in windows whose cursor was on the last line.

@@ -1,5 +1,26 @@
 local M = {}
 
+-- Milliseconds since the epoch for an ISO 8601 UTC time such as 2024-12-03T14:00:01.250Z.
+function M.time(iso)
+  if type(iso) ~= "string" then
+    return nil
+  end
+  local y, mo, d, h, mi, s, frac = iso:match("^(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)%.?(%d*)Z$")
+  if not y then
+    return nil
+  end
+  y, mo = tonumber(y), tonumber(mo)
+  -- Days from the civil date (Howard Hinnant's algorithm).
+  y = mo <= 2 and y - 1 or y
+  local era = math.floor(y / 400)
+  local yoe = y - era * 400
+  local doy = math.floor((153 * (mo + (mo > 2 and -3 or 9)) + 2) / 5) + tonumber(d) - 1
+  local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
+  local days = era * 146097 + doe - 719468
+  local ms = frac ~= "" and math.floor(tonumber("0." .. frac) * 1000 + 0.5) or 0
+  return ((days * 24 + tonumber(h)) * 60 + tonumber(mi)) * 60000 + tonumber(s) * 1000 + ms
+end
+
 -- Pi renders raw context entries, not context_edit replacements used by the model.
 function M.messages(entries, leaf_id)
   local by_id, branch, seen = {}, {}, {}
@@ -69,6 +90,8 @@ function M.messages(entries, leaf_id)
     -- Entry IDs stay stable across history re-fetches, so rendering can cache by them.
     if message then
       message._entry_id = entry.id
+      -- When pi saved the entry; for an assistant message, when it finished.
+      message._entry_time = M.time(entry.timestamp)
     end
     -- Earlier summaries in the retained range are valid context entries too.
     if message and not (boundary and i < boundary and message.role == "system") then
