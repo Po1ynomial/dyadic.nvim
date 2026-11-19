@@ -16,7 +16,6 @@ M.names = {
   "export",
   "copy",
   "settings",
-  "hotkeys",
   "quit",
 }
 
@@ -485,7 +484,10 @@ function M.run(s, text)
     return false
   end
   argument = vim.trim(argument)
-  if unsupported[name] then
+  if name == "hotkeys" then
+    -- Mappings are buffer-local with descriptions, so Neovim already lists the active set.
+    s:notice("/hotkeys is not available. Use :nmap <buffer> or :help dyadic-mappings", "warning")
+  elseif unsupported[name] then
     s:notice("/" .. name .. " is not available through stock pi RPC. Use pi in a terminal.", "error")
   elseif name == "model" then
     model(s, argument, text)
@@ -574,22 +576,6 @@ function M.run(s, text)
         s:notice("Exported HTML: " .. tostring(data.path), "info")
       end)
     end
-  elseif name == "hotkeys" then
-    local lines = { "Normal-mode dyadic shortcuts. Insert mode keeps Neovim editing keys." }
-    local seen = {}
-    for _, buf in ipairs({ s.buf, s.draft }) do
-      if buf and vim.api.nvim_buf_is_valid(buf) then
-        for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, "n")) do
-          local key = map.lhs .. "\t" .. (map.desc or map.rhs or "")
-          if not seen[key] then
-            seen[key] = true
-            lines[#lines + 1] = key
-          end
-        end
-      end
-    end
-    consume(s, text)
-    s:notice(table.concat(lines, "\n"), "info")
   elseif name == "quit" then
     s:close()
   else

@@ -156,7 +156,6 @@ local actions = {
   settings = { "Settings", "<localleader>s" },
   new = { "New" },
   resume = { "Resume" },
-  hotkeys = { "Hotkeys", "<localleader>?" },
   focus_draft = { "FocusDraft", "<localleader>i" },
   focus_transcript = { "FocusTranscript", "<localleader>r" },
 }

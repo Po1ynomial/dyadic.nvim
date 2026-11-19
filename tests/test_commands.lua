@@ -35,6 +35,15 @@ T["unsupported TUI commands are rejected locally"] = function()
   eq(child.lua_get("#_G.S.messages"), 0)
 end
 
+T["/hotkeys points to native mapping lists"] = function()
+  child.open()
+  child.lua("_G.S:set_draft('/hotkeys'); _G.S:submit()")
+  child.settle()
+  eq(child.lua_get("_G.notes[1].msg"):find(":nmap <buffer>", 1, true) ~= nil, true)
+  eq(child.lua_get("#_G.S.messages"), 0)
+  eq(vim.tbl_contains(child.lua_get("require('dyadic.commands').complete(_G.S, '/h')"), "/hotkeys"), false)
+end
+
 T["focus actions work through the Lua API"] = function()
   child.open()
   child.lua("vim.api.nvim_set_current_win(vim.fn.win_findbuf(_G.S.buf)[1]); require('dyadic').action('focus_draft')")
