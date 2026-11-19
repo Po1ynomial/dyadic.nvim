@@ -1,13 +1,6 @@
 local H = dofile("tests/helpers.lua")
-local eq, screenshot = H.expect.equality, H.expect.reference_screenshot
-local child = H.new_child()
-
-local T = MiniTest.new_set({
-  hooks = {
-    pre_case = child.setup,
-    post_once = child.stop,
-  },
-})
+local eq, ok = H.eq, H.ok
+local T = H.suite()
 
 local function assistant(ts, content, extra)
   return vim.tbl_extend(
@@ -42,12 +35,16 @@ local function finished_run()
   })
 end
 
-T["finished runs collapse activity that text follows"] = function()
-  child.open({ entries = finished_run() })
-  child.settle()
-  screenshot(child.get_screenshot())
+local function open_finished()
+  local s = H.open({ entries = finished_run() })
+  H.settle()
+  return s
+end
+
+T("finished runs collapse activity that text follows", function()
+  local s = open_finished()
   -- The buffer holds only message text; everything else is overlay rows on empty lines.
-  eq(child.transcript(), {
+  eq(H.transcript(s), {
     "",
     "",
     "",
@@ -63,54 +60,50 @@ T["finished runs collapse activity that text follows"] = function()
     "print(1)",
     "```",
   })
-  eq(child.row_texts(), {
-    "── Dyadic · /work",
-    "── You",
-    "── Assistant · fake-model",
-    "▸ thinking",
-    "▸ 2 tools · 1 error",
+  eq(H.rows(s), {
+    { line = 1, text = "── Dyadic · /work" },
+    { line = 3, text = "── You" },
+    { line = 6, text = "── Assistant · fake-model" },
+    { line = 7, text = "▸ thinking" },
+    { line = 9, text = "▸ 2 tools · 1 error" },
   })
-end
+end)
 
-T["za expands a group in place and K opens an item's details"] = function()
-  child.open({ entries = finished_run() })
-  child.settle()
-  child.cursor_to_row("2 tools")
-  child.type_keys("za")
-  eq(vim.list_slice(child.row_texts(), 5), {
+T("za expands a group in place and K opens an item's details", function()
+  local s = open_finished()
+  H.cursor_to_row(s, "2 tools")
+  H.keys("za")
+  eq(vim.list_slice(H.row_texts(s), 5), {
     "  ◦ read a.lua · done",
     "  ◦ bash rg 'foo*' -n · error",
   })
-  screenshot(child.get_screenshot())
-  child.cursor_to_row("read a.lua")
-  child.type_keys("K")
-  eq(child.lua_get("vim.bo.filetype"), "lua")
-  eq(child.lua_get("vim.api.nvim_buf_get_lines(0, 0, -1, false)"), { "local x = 1", "return x" })
-  eq(child.lua_get("vim.api.nvim_buf_get_name(0)"):match("dyadic://%d+/detail/c1$") ~= nil, true)
+  H.cursor_to_row(s, "read a.lua")
+  H.keys("K")
+  eq(vim.bo.filetype, "lua")
+  eq(H.current_lines(), { "local x = 1", "return x" })
+  ok(vim.api.nvim_buf_get_name(0):match("dyadic://%d+/detail/c1$"), vim.api.nvim_buf_get_name(0))
   -- q closes the detail window, and hiding it wipes the buffer.
-  local detail = child.lua_get("vim.api.nvim_get_current_buf()")
-  child.type_keys("q")
-  eq(child.lua_get("vim.api.nvim_buf_is_valid(...)", { detail }), false)
+  local detail = vim.api.nvim_get_current_buf()
+  H.keys("q")
+  eq(vim.api.nvim_buf_is_valid(detail), false)
   -- za on an item row collapses its group again.
-  child.cursor_to_row("bash rg")
-  child.type_keys("za")
-  eq(child.row_texts()[5], "▸ 2 tools · 1 error")
-end
+  H.cursor_to_row(s, "bash rg")
+  H.keys("za")
+  eq(H.row_texts(s)[5], "▸ 2 tools · 1 error")
+end)
 
-T["K on a collapsed summary expands it"] = function()
-  child.open({ entries = finished_run() })
-  child.settle()
-  child.cursor_to_row("▸ thinking")
-  child.type_keys("K")
-  eq(child.row_texts()[4], "  ◦ thinking · 2 lines")
-  child.type_keys("K")
-  eq(child.lua_get("vim.bo.filetype"), "markdown")
-  eq(child.lua_get("vim.api.nvim_buf_get_lines(0, 0, -1, false)"), { "The bug is *probably*", "in a.lua" })
-end
+T("K on a collapsed summary expands it", function()
+  local s = open_finished()
+  H.cursor_to_row(s, "▸ thinking")
+  H.keys("K")
+  eq(H.row_texts(s)[4], "  ◦ thinking · 2 lines")
+  H.keys("K")
+  eq(vim.bo.filetype, "markdown")
+  eq(H.current_lines(), { "The bug is *probably*", "in a.lua" })
+end)
 
-T["the live run keeps trailing activity expanded until text follows"] = function()
-  child.open()
-  child.emit({
+local function start_bash_run(s)
+  H.emit(s, {
     { type = "agent_start" },
     { type = "message_start", message = { role = "user", content = "go", timestamp = 10 } },
     { type = "message_end", message = { role = "user", content = "go", timestamp = 10 } },
@@ -129,60 +122,59 @@ T["the live run keeps trailing activity expanded until text follows"] = function
     },
     { type = "tool_execution_start", toolCallId = "c1", toolName = "bash", args = { command = "make test" } },
   })
-  child.settle()
-  eq(child.row_texts()[4], "  ◦ bash make test · running")
-  screenshot(child.get_screenshot())
-  child.emit({
+  H.settle()
+end
+
+T("the live run keeps trailing activity expanded until text follows", function()
+  local s = H.open()
+  start_bash_run(s)
+  eq(H.row_texts(s)[4], "  ◦ bash make test · running")
+  H.emit(s, {
     { type = "message_update", assistantMessageEvent = { type = "text_start", contentIndex = 1 } },
     { type = "message_update", assistantMessageEvent = { type = "text_delta", contentIndex = 1, delta = "Tests run" } },
   })
-  child.settle()
-  eq(child.row_texts()[4], "▸ 1 tool · 1 running")
-  eq(child.transcript()[#child.transcript()], "Tests run")
-end
+  H.settle()
+  eq(H.row_texts(s)[4], "▸ 1 tool · 1 running")
+  local lines = H.transcript(s)
+  eq(lines[#lines], "Tests run")
+end)
 
-T["a visible detail buffer follows a running tool"] = function()
-  child.open()
-  child.emit({
-    { type = "agent_start" },
-    { type = "message_start", message = { role = "user", content = "go", timestamp = 10 } },
-    { type = "message_end", message = { role = "user", content = "go", timestamp = 10 } },
-    {
-      type = "message_end",
-      message = assistant(11, { { type = "toolCall", id = "c1", name = "bash", arguments = { command = "make" } } }),
-    },
-    { type = "tool_execution_start", toolCallId = "c1", toolName = "bash", args = { command = "make" } },
-  })
-  child.settle()
-  child.cursor_to_row("bash make")
-  child.type_keys("K")
-  eq(child.lua_get("vim.api.nvim_buf_get_lines(0, 0, -1, false)"), { "(no output)" })
+T("a visible detail buffer follows a running tool", function()
+  local s = H.open()
+  start_bash_run(s)
+  H.cursor_to_row(s, "bash make")
+  H.keys("K")
+  eq(H.current_lines(), { "(no output)" })
   local partial = { content = { { type = "text", text = "step 1\nstep 2" } } }
-  child.emit({ { type = "tool_execution_update", toolCallId = "c1", toolName = "bash", partialResult = partial } })
-  child.settle()
-  eq(child.lua_get("vim.api.nvim_buf_get_lines(0, 0, -1, false)"), { "step 1", "step 2" })
-end
+  H.emit(s, { { type = "tool_execution_update", toolCallId = "c1", toolName = "bash", partialResult = partial } })
+  H.settle()
+  eq(H.current_lines(), { "step 1", "step 2" })
+end)
 
-T["a failed run keeps its trailing activity expanded"] = function()
-  child.open()
+T("a failed run keeps its trailing activity expanded", function()
+  local s = H.open()
   local entries = H.chain({
     { role = "user", content = "go", timestamp = 10 },
     assistant(11, {
       { type = "toolCall", id = "c1", name = "bash", arguments = { command = "sleep 100" } },
     }, { stopReason = "aborted" }),
   })
-  child.lua("_G.S:request('test_set', { entries = ... })", { entries })
-  child.emit({ { type = "agent_start" }, { type = "agent_settled", aborted = true } })
-  child.wait("_G.S.run_failed == true and #_G.S.messages == 2")
-  child.settle()
-  eq(
-    vim.list_slice(child.row_texts(), 2),
-    { "── You", "── Assistant · fake-model", "  ◦ bash sleep 100 · no result", "✗ Aborted" }
-  )
-end
+  H.request(s, "test_set", { entries = entries })
+  H.emit(s, { { type = "agent_start" }, { type = "agent_settled", aborted = true } })
+  H.wait(function()
+    return s.run_failed == true and #s.messages == 2
+  end)
+  H.settle()
+  eq(vim.list_slice(H.row_texts(s), 2), {
+    "── You",
+    "── Assistant · fake-model",
+    "  ◦ bash sleep 100 · no result",
+    "✗ Aborted",
+  })
+end)
 
-T["saved history loads fully collapsed"] = function()
-  child.open({
+T("saved history loads fully collapsed", function()
+  local s = H.open({
     entries = H.chain({
       { role = "user", content = "go", timestamp = 10 },
       assistant(11, {
@@ -190,12 +182,12 @@ T["saved history loads fully collapsed"] = function()
       }, { stopReason = "aborted" }),
     }),
   })
-  child.settle()
-  eq(child.row_texts()[4], "▸ 1 tool")
-end
+  H.settle()
+  eq(H.row_texts(s)[4], "▸ 1 tool")
+end)
 
-T["shell commands, summaries, usage, errors, and queues are rows"] = function()
-  child.open({
+T("shell commands, summaries, usage, errors, and queues are rows", function()
+  local s = H.open({
     entries = H.chain({
       { role = "user", content = "old", timestamp = 1 },
       {
@@ -217,102 +209,108 @@ T["shell commands, summaries, usage, errors, and queues are rows"] = function()
       assistant(3, {}, { stopReason = "error", errorMessage = "529 overloaded" }),
     }),
   })
-  child.settle()
-  child.emit({ { type = "queue_update", steering = { "also check b.lua" }, followUp = { "then summarize" } } })
-  child.settle()
-  screenshot(child.get_screenshot())
-  local rows = child.row_texts()
-  eq(rows[#rows - 1], "⧗ steer · also check b.lua")
-  eq(rows[#rows], "⧗ follow-up · then summarize")
-  child.cursor_to_row("Context compacted")
-  child.type_keys("K")
-  eq(child.lua_get("vim.api.nvim_buf_get_lines(0, 0, -1, false)"), { "Earlier work" })
-end
+  H.settle()
+  H.emit(s, { { type = "queue_update", steering = { "also check b.lua" }, followUp = { "then summarize" } } })
+  H.settle()
+  eq(H.row_texts(s), {
+    "── Dyadic · /work",
+    "▸ Context compacted · 1200 tokens before",
+    "  usage · compaction: 50 tokens billed, $0.0100",
+    "── You",
+    "$ ls -la · exit 0 · excluded from context",
+    "── Assistant · fake-model",
+    "✗ 529 overloaded",
+    "⧗ steer · also check b.lua",
+    "⧗ follow-up · then summarize",
+  })
+  H.cursor_to_row(s, "Context compacted")
+  H.keys("K")
+  eq(H.current_lines(), { "Earlier work" })
+end)
 
-T["the cached render matches a fresh one"] = function()
-  child.open({ entries = finished_run() })
-  child.settle()
+T("the cached render matches a fresh one", function()
+  local s = open_finished()
+  local Transcript = require("dyadic.transcript")
   local function snapshot(cache)
-    return child.lua_get(
-      [[(function(cache)
-        local model = require("dyadic.transcript").build(_G.S, { cache = cache })
-        local rows = {}
-        for _, row in ipairs(model.rows) do
-          rows[#rows + 1] = { row.line, row.kind, row.chunks }
-        end
-        return { model.lines, rows }
-      end)(...)]],
-      { cache }
-    )
+    local model = Transcript.build(s, { cache = cache })
+    local rows = {}
+    for _, row in ipairs(model.rows) do
+      rows[#rows + 1] = { row.line, row.kind, row.chunks }
+    end
+    return { model.lines, rows }
   end
   -- Build once to fill the cache, then compare a cached build with an uncached one.
   snapshot(true)
-  eq(child.lua_get("vim.tbl_count(_G.S._render_cache)"), 1)
+  eq(vim.tbl_count(s._render_cache), 1)
   eq(snapshot(true), snapshot(false))
-  child.lua("_G.S.expanded['group:c1'] = true")
+  s.expanded["group:c1"] = true
   eq(snapshot(true), snapshot(false))
-end
+end)
 
-T["output follows only while the cursor is on the last line"] = function()
-  child.open({ entries = finished_run() })
-  child.settle()
-  child.lua("local w = vim.fn.win_findbuf(_G.S.buf)[1]; vim.api.nvim_set_current_win(w); vim.cmd('normal! G')")
-  child.lua("_G.S:set_draft('more'); _G.S:submit()")
-  child.wait("_G.S.phase == 'Idle' and #_G.S.messages == 8")
-  child.settle()
-  local last = #child.transcript()
-  eq(child.lua_get("vim.api.nvim_win_get_cursor(vim.fn.win_findbuf(_G.S.buf)[1])[1]"), last)
-  child.lua("vim.api.nvim_win_set_cursor(vim.fn.win_findbuf(_G.S.buf)[1], { 3, 0 })")
-  child.lua("_G.S:set_draft('again'); _G.S:submit()")
-  child.wait("#_G.S.messages == 10")
-  child.settle()
-  eq(child.lua_get("vim.api.nvim_win_get_cursor(vim.fn.win_findbuf(_G.S.buf)[1])[1]"), 3)
-end
+T("output follows only while the cursor is on the last line", function()
+  local s = open_finished()
+  local win = H.transcript_win(s)
+  vim.api.nvim_win_set_cursor(win, { vim.api.nvim_buf_line_count(s.buf), 0 })
+  s:set_draft("more")
+  s:submit()
+  H.wait(function()
+    return s.phase == "Idle" and #s.messages == 8
+  end)
+  H.settle()
+  eq(vim.api.nvim_win_get_cursor(win)[1], #H.transcript(s))
+  vim.api.nvim_win_set_cursor(win, { 3, 0 })
+  s:set_draft("again")
+  s:submit()
+  H.wait(function()
+    return #s.messages == 10
+  end)
+  H.settle()
+  eq(vim.api.nvim_win_get_cursor(win)[1], 3)
+end)
 
-T["g] and g[ jump between messages"] = function()
-  child.open({ entries = finished_run() })
-  child.settle()
-  child.lua(
-    "local w = vim.fn.win_findbuf(_G.S.buf)[1]; vim.api.nvim_set_current_win(w); vim.api.nvim_win_set_cursor(w, { 1, 0 })"
-  )
-  child.type_keys("g]")
-  eq(child.lua_get("vim.api.nvim_win_get_cursor(0)[1]"), 3)
-  child.type_keys("g]")
-  eq(child.lua_get("vim.api.nvim_win_get_cursor(0)[1]"), 6)
-  child.type_keys("g[")
-  eq(child.lua_get("vim.api.nvim_win_get_cursor(0)[1]"), 3)
-end
+T("g] and g[ jump between messages", function()
+  local s = open_finished()
+  local win = H.transcript_win(s)
+  vim.api.nvim_set_current_win(win)
+  vim.api.nvim_win_set_cursor(win, { 1, 0 })
+  H.keys("g]")
+  eq(vim.api.nvim_win_get_cursor(0)[1], 3)
+  H.keys("g]")
+  eq(vim.api.nvim_win_get_cursor(0)[1], 6)
+  H.keys("g[")
+  eq(vim.api.nvim_win_get_cursor(0)[1], 3)
+end)
 
-T["a hidden transcript catches up when shown"] = function()
-  child.open()
-  child.lua(
-    "local w = vim.fn.win_findbuf(_G.S.buf)[1]; vim.api.nvim_win_set_buf(w, vim.api.nvim_create_buf(true, true))"
-  )
-  child.lua("_G.S:set_draft('hello'); _G.S:submit()")
-  child.wait("_G.S.phase == 'Idle' and #_G.S.messages == 2")
-  child.settle()
-  eq(child.lua_get("_G.S._view.stale"), true)
-  eq(#child.transcript(), 1)
-  child.lua("require('dyadic').show(_G.S)")
-  eq(child.lua_get("_G.S._view.stale"), false)
-  eq(vim.tbl_contains(child.transcript(), "echo: hello"), true)
-end
+T("a hidden transcript catches up when shown", function()
+  local s = H.open()
+  vim.api.nvim_win_set_buf(H.transcript_win(s), vim.api.nvim_create_buf(true, true))
+  s:set_draft("hello")
+  s:submit()
+  H.wait(function()
+    return s.phase == "Idle" and #s.messages == 2
+  end)
+  H.settle()
+  eq(s._view.stale, true)
+  eq(#H.transcript(s), 1)
+  require("dyadic").show(s)
+  eq(s._view.stale, false)
+  ok(vim.tbl_contains(H.transcript(s), "echo: hello"))
+end)
 
-T["buffers keep their own filetype and parse as markdown"] = function()
-  child.open()
-  eq(child.lua_get("vim.bo[_G.S.buf].filetype"), "dyadic")
-  eq(child.lua_get("vim.bo[_G.S.draft].filetype"), "dyadic_input")
-  eq(child.lua_get("vim.treesitter.highlighter.active[_G.S.buf] ~= nil"), true)
-  eq(child.lua_get("vim.treesitter.get_parser(_G.S.buf):lang()"), "markdown")
-  eq(child.lua_get("vim.treesitter.language.get_lang('dyadic')"), "markdown")
-end
+T("buffers keep their own filetype and parse as markdown", function()
+  local s = H.open()
+  eq(vim.bo[s.buf].filetype, "dyadic")
+  eq(vim.bo[s.draft].filetype, "dyadic_input")
+  ok(vim.treesitter.highlighter.active[s.buf] ~= nil, "treesitter is not active")
+  eq(vim.treesitter.get_parser(s.buf):lang(), "markdown")
+  eq(vim.treesitter.language.get_lang("dyadic"), "markdown")
+end)
 
-T["status is shown on the transcript window"] = function()
-  child.open()
-  child.settle()
-  local line = child.lua_get("vim.wo[vim.fn.win_findbuf(_G.S.buf)[1]].statusline")
-  eq(line, " Dyadic | Idle | fake/fake-model | thinking off | tokens 0 | $0.0000")
-  eq(child.lua_get("_G.S:status().model"), "fake/fake-model")
-end
+T("status is shown on the transcript window", function()
+  local s = H.open()
+  H.settle()
+  eq(vim.wo[H.transcript_win(s)].statusline, " Dyadic | Idle | fake/fake-model | thinking off | tokens 0 | $0.0000")
+  eq(s:status().model, "fake/fake-model")
+end)
 
 return T

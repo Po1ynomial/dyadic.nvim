@@ -32,12 +32,13 @@ The full reference is in Neovim's help: `:help dyadic`. It covers the transcript
 
 ## Development
 
-Tests use [mini.test](https://github.com/nvim-mini/mini.test) and a scriptable fake pi, so they make no model calls:
+Tests run with [just](https://github.com/casey/just) and need nothing else: each case runs in its own headless Neovim against a scriptable fake pi, so they make no model calls.
 
 ```sh
-make test                              # clones mini.test into deps/ on first run
-make test FILE=tests/test_render.lua   # one file
-MINI_TEST_PATH=/path/to/mini.test make test
+just test                          # all tests
+just test tests/test_render.lua    # selected files
+just test-real-pi                  # smoke test against the real pi, still without model calls
+just fmt                           # stylua
 ```
 
-Rendering tests compare screenshots in `tests/screenshots/`. After an intended UI change, delete the affected files and rerun the tests to regenerate them, then review the new screenshots before committing.
+Set `DYADIC_NVIM` to test with another Neovim binary.
