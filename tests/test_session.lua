@@ -67,6 +67,22 @@ T("a crash notifies once with the stderr log path", function()
   eq(s.phase, "Pi exited (code 3)")
 end)
 
+T("a crash during the startup refresh notifies once", function()
+  local dyadic = require("dyadic")
+  dyadic.setup({ cmd = { vim.v.progpath, "--clean", "-l", H.root .. "/tests/fakepi.lua" } })
+  local s = dyadic.open()
+  H.wait(function()
+    return s.phase == "Idle"
+  end)
+  -- Stats and commands are still pending; the chain would continue on a dead process.
+  s:request("test_crash", {})
+  H.wait(function()
+    return s.phase:match("^Pi exited") ~= nil
+  end)
+  H.settle()
+  eq(#_G.notes, 1, vim.inspect(_G.notes))
+end)
+
 -- Headless Neovim also checks timestamps on its own, so observe dyadic's checktime calls.
 T("file-changing tools check only unmodified file buffers", function()
   local s = H.open()

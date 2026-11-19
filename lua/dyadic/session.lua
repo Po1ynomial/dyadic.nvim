@@ -98,12 +98,16 @@ function Session:request(kind, fields, callback)
     end
     return nil, err
   end
+  -- After pi exits, on_exit reports once. Don't repeat it for pending requests or for
+  -- follow-up requests that callbacks send to the dead process.
+  local function exited()
+    return self.rpc._exit ~= nil or self.rpc._exited == true
+  end
   local id, request_err = self.rpc:request(kind, fields or {}, function(err, data, response)
     if self.closed then
       return
     end
-    -- After an exit, on_exit reports once; don't repeat it for every pending request.
-    if err and not self.rpc._exit then
+    if err and not exited() then
       self:notice(err, "error")
     end
     if callback then
@@ -111,7 +115,9 @@ function Session:request(kind, fields, callback)
     end
   end)
   if not id then
-    self:notice(request_err, "error")
+    if not exited() then
+      self:notice(request_err, "error")
+    end
     if callback then
       callback(request_err)
     end
