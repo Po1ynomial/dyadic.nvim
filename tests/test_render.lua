@@ -141,6 +141,28 @@ T["the live run keeps trailing activity expanded until text follows"] = function
   eq(child.transcript()[#child.transcript()], "Tests run")
 end
 
+T["a visible detail buffer follows a running tool"] = function()
+  child.open()
+  child.emit({
+    { type = "agent_start" },
+    { type = "message_start", message = { role = "user", content = "go", timestamp = 10 } },
+    { type = "message_end", message = { role = "user", content = "go", timestamp = 10 } },
+    {
+      type = "message_end",
+      message = assistant(11, { { type = "toolCall", id = "c1", name = "bash", arguments = { command = "make" } } }),
+    },
+    { type = "tool_execution_start", toolCallId = "c1", toolName = "bash", args = { command = "make" } },
+  })
+  child.settle()
+  child.cursor_to_row("bash make")
+  child.type_keys("K")
+  eq(child.lua_get("vim.api.nvim_buf_get_lines(0, 0, -1, false)"), { "(no output)" })
+  local partial = { content = { { type = "text", text = "step 1\nstep 2" } } }
+  child.emit({ { type = "tool_execution_update", toolCallId = "c1", toolName = "bash", partialResult = partial } })
+  child.settle()
+  eq(child.lua_get("vim.api.nvim_buf_get_lines(0, 0, -1, false)"), { "step 1", "step 2" })
+end
+
 T["a failed run keeps its trailing activity expanded"] = function()
   child.open()
   local entries = H.chain({
