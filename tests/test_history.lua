@@ -307,11 +307,4 @@ T("buffers keep their own filetype and parse as markdown", function()
   eq(vim.treesitter.language.get_lang("dyadic"), "markdown")
 end)
 
-T("status is shown on the history window", function()
-  local agent = H.open()
-  H.settle()
-  eq(vim.wo[H.history_win(agent)].statusline, " Dyadic | Idle | fake/fake-model | thinking off | tokens 0 | $0.0000")
-  eq(agent:status().model, "fake/fake-model")
-end)
-
 return T

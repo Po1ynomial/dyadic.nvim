@@ -5,6 +5,7 @@ local defaults = {
   placement = "sidebar",
   sidebar = { side = "right", width = 0.35, min_width = 40, max_width = 120 },
   composer = { min_height = 3, max_height = 0.4 },
+  statusline = true,
   completion = true,
   mappings = {},
 }
@@ -28,6 +29,7 @@ function M.setup(opts)
   vim.validate("composer", config.composer, "table")
   vim.validate("composer.min_height", config.composer.min_height, "number")
   vim.validate("composer.max_height", config.composer.max_height, "number")
+  vim.validate("statusline", config.statusline, "boolean")
   vim.validate("completion", config.completion, "boolean")
   vim.validate("mappings", config.mappings, "table")
   assert(#config.cmd > 0, "dyadic: cmd must not be empty")

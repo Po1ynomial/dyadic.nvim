@@ -5,11 +5,12 @@ local History = require("dyadic.history")
 local Detail = require("dyadic.detail")
 local Composer = require("dyadic.composer")
 local Sidebar = require("dyadic.sidebar")
+local Bars = require("dyadic.bars")
 local lines_of, one_line, sorted_keys = text.lines_of, text.one_line, text.sorted_keys
 
 local views = {}
 local window_states = {}
-local owned_options = { "wrap", "linebreak", "number", "relativenumber", "signcolumn", "statusline" }
+local owned_options = { "wrap", "linebreak", "number", "relativenumber", "signcolumn", "statusline", "winbar" }
 local rows_ns = api.nvim_create_namespace("dyadic_history")
 local widgets_ns = api.nvim_create_namespace("dyadic_widgets")
 local render_widgets, statuslines
@@ -27,6 +28,10 @@ local function define_highlights()
     DyadicRunning = "DiagnosticWarn",
     DyadicError = "DiagnosticError",
     DyadicQueue = "DiagnosticInfo",
+    DyadicFooter = "Comment",
+    DyadicSpinner = "DiagnosticInfo",
+    DyadicPhase = "Comment",
+    DyadicWarn = "DiagnosticWarn",
   }) do
     api.nvim_set_hl(0, name, { link = link, default = true })
   end
@@ -475,34 +480,6 @@ function M.complete(findstart, base)
   return result
 end
 
--- Status shown on the history window, built from agent:status().
-local function footer(agent)
-  local status = agent:status()
-  local parts = { one_line(status.title), one_line(status.phase) }
-  if status.model then
-    parts[#parts + 1] = one_line(status.model)
-  end
-  if status.thinking then
-    parts[#parts + 1] = "thinking " .. one_line(status.thinking)
-  end
-  local context = status.context
-  if context then
-    local tokens = context.tokens and tostring(context.tokens) or "?"
-    local percent = context.percent and string.format(" %.1f%%", context.percent) or ""
-    parts[#parts + 1] = "ctx " .. tokens .. "/" .. tostring(context.window or "?") .. percent
-  end
-  if status.tokens then
-    parts[#parts + 1] = "tokens " .. tostring(status.tokens)
-  end
-  if status.cost then
-    parts[#parts + 1] = string.format("$%.4f", status.cost)
-  end
-  for _, value in ipairs(status.extensions) do
-    parts[#parts + 1] = one_line(value)
-  end
-  return table.concat(parts, " | ")
-end
-
 render_widgets = function(agent)
   if not valid_buf(agent.composer_buf) then
     return
@@ -526,6 +503,8 @@ render_widgets = function(agent)
       end
     end
   end
+  -- Order below the draft, as in pi: widgets placed below the editor, then the footer.
+  vim.list_extend(below, Bars.footer(agent))
   if #above > 0 then
     api.nvim_buf_set_extmark(
       agent.composer_buf,
@@ -555,19 +534,62 @@ render_widgets = function(agent)
   end
 end
 
+local function set_option(win, name, value)
+  if vim.wo[win][name] ~= value then
+    vim.wo[win][name] = value
+  end
+end
+
+local function composer_bar(agent)
+  local win = Composer.window(agent)
+  if win then
+    set_option(win, "winbar", Bars.composer_winbar(agent, agent._view.frame))
+  end
+end
+
+-- The spinner turns while the agent works and its composer is shown.
+local function spin(agent)
+  local view = agent._view
+  local wanted = Bars.busy(agent) and Composer.window(agent) ~= nil and not agent.closed
+  if wanted and not view.spinner then
+    view.frame = 1
+    view.spinner = vim.uv.new_timer()
+    view.spinner:start(
+      100,
+      100,
+      vim.schedule_wrap(function()
+        if view.spinner then
+          view.frame = view.frame % #Bars.SPINNER + 1
+          composer_bar(agent)
+        end
+      end)
+    )
+  elseif not wanted and view.spinner then
+    view.spinner:stop()
+    view.spinner:close()
+    view.spinner = nil
+  end
+end
+
+-- Window bars and statuslines of the agent's windows.
 statuslines = function(agent)
-  local status = (" " .. footer(agent)):gsub("%%", "%%%%")
+  local statusline = agent.config.statusline ~= false
+  local history_bar = Bars.history_winbar(agent)
   for _, win in ipairs(vim.fn.win_findbuf(agent.history_buf)) do
     if valid_win(win) then
-      vim.wo[win].statusline = status
-    end
-  end
-  if valid_buf(agent.composer_buf) then
-    for _, win in ipairs(vim.fn.win_findbuf(agent.composer_buf)) do
-      if valid_win(win) then
-        vim.wo[win].statusline = " Composer"
+      set_option(win, "winbar", history_bar)
+      if statusline then
+        set_option(win, "statusline", Bars.statusline(agent, "history"))
       end
     end
+  end
+  local win = Composer.window(agent)
+  if win then
+    if statusline then
+      set_option(win, "statusline", Bars.statusline(agent, "composer"))
+    end
+    spin(agent)
+    composer_bar(agent)
   end
 end
 
@@ -653,6 +675,11 @@ function M.dispose(agent)
     return
   end
   agent._view.disposed = true
+  if agent._view.spinner then
+    agent._view.spinner:stop()
+    agent._view.spinner:close()
+    agent._view.spinner = nil
+  end
   require("dyadic.extension_ui").dispose_dialogs(agent)
   Detail.dispose(agent)
   Composer.dispose(agent)
