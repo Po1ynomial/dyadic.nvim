@@ -276,6 +276,15 @@ T["a hidden transcript catches up when shown"] = function()
   eq(vim.tbl_contains(child.transcript(), "echo: hello"), true)
 end
 
+T["buffers keep their own filetype and parse as markdown"] = function()
+  child.open()
+  eq(child.lua_get("vim.bo[_G.S.buf].filetype"), "dyadic")
+  eq(child.lua_get("vim.bo[_G.S.draft].filetype"), "dyadic_input")
+  eq(child.lua_get("vim.treesitter.highlighter.active[_G.S.buf] ~= nil"), true)
+  eq(child.lua_get("vim.treesitter.get_parser(_G.S.buf):lang()"), "markdown")
+  eq(child.lua_get("vim.treesitter.language.get_lang('dyadic')"), "markdown")
+end
+
 T["status is shown on the transcript window"] = function()
   child.open()
   child.settle()

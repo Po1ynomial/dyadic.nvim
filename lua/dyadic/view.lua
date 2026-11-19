@@ -12,6 +12,9 @@ local rows_ns = api.nvim_create_namespace("dyadic_transcript")
 local widgets_ns = api.nvim_create_namespace("dyadic_widgets")
 local render_widgets
 
+-- Plugins that resolve the parser from 'filetype' (markdown renderers) find markdown too.
+vim.treesitter.language.register("markdown", { "dyadic", "dyadic_input" })
+
 for name, link in pairs({
   DyadicTitle = "Title",
   DyadicRole = "Title",
@@ -236,7 +239,10 @@ local function create_buffer(s, ft, suffix, editable)
   vim.bo[buf].bufhidden = "hide"
   vim.bo[buf].swapfile = false
   vim.bo[buf].filetype = ft
-  vim.bo[buf].syntax = "markdown"
+  -- Treesitter reparses only changed ranges; regex syntax is the fallback without a parser.
+  if not pcall(vim.treesitter.start, buf, "markdown") then
+    vim.bo[buf].syntax = "markdown"
+  end
   vim.bo[buf].modifiable = editable
   if not editable then
     -- The transcript is only written by the renderer; keep no undo history for it.
