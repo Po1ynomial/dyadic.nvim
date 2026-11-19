@@ -25,6 +25,10 @@ local function view()
   return require("dyadic.view")
 end
 
+local function sidebar()
+  return require("dyadic.sidebar")
+end
+
 -- Ordinary (non-floating) windows of a tab.
 local function tiled(tab)
   return vim.tbl_filter(function(win)
@@ -105,14 +109,26 @@ local function intrusion(new, anchor, win)
   end
 end
 
--- Move a window out beside the window last used outside any pair, or to the editor edge.
+-- Move a window out beside the window last used outside any pair and the sidebar, or to
+-- the editor edge away from the sidebar.
 function M.move_out(win, vertical)
   local tab = api.nvim_win_get_tabpage(win)
   local target = outside[tab]
-  if not (valid_win(target) and target ~= win and api.nvim_win_get_tabpage(target) == tab) or pair_member(target) then
-    target = -1
+  local usable = valid_win(target)
+    and target ~= win
+    and api.nvim_win_get_tabpage(target) == tab
+    and not pair_member(target)
+    and not sidebar().contains(target)
+  if usable then
+    pcall(api.nvim_win_set_config, win, { split = vertical and "left" or "above", win = target })
+    return
   end
-  pcall(api.nvim_win_set_config, win, { split = vertical and "left" or "above", win = target })
+  local side = vertical and "left" or "above"
+  local bar = sidebar().window(tab)
+  if bar then
+    side = api.nvim_win_get_position(bar)[2] == 0 and "right" or "left"
+  end
+  pcall(api.nvim_win_set_config, win, { split = side, win = -1 })
 end
 
 local function limits(agent, total)
@@ -266,6 +282,7 @@ function M.check()
     check_agent(agent, state)
   end
   check_strays()
+  sidebar().check(created)
   created = {}
 end
 
@@ -313,9 +330,10 @@ api.nvim_create_autocmd("WinEnter", {
   group = group,
   callback = function()
     local win = api.nvim_get_current_win()
-    if not is_float(win) and not pair_member(win) then
+    if not is_float(win) and not pair_member(win) and not sidebar().contains(win) then
       outside[api.nvim_get_current_tabpage()] = win
     end
+    sidebar().entered(win)
     M.schedule_check()
   end,
 })
@@ -323,6 +341,12 @@ api.nvim_create_autocmd({ "WinClosed", "WinResized", "VimResized", "TabEnter", "
   group = group,
   callback = M.schedule_check,
 })
-api.nvim_create_autocmd("QuitPre", { group = group, callback = quit_pre })
+api.nvim_create_autocmd("QuitPre", {
+  group = group,
+  callback = function()
+    sidebar().quit_pre()
+    quit_pre()
+  end,
+})
 
 return M

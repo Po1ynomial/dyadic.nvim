@@ -2,7 +2,8 @@ local M = {}
 local defaults = {
   cmd = { "pi" },
   args = {},
-  placement = "free",
+  placement = "sidebar",
+  sidebar = { side = "right", width = 0.35, min_width = 40, max_width = 120 },
   composer = { min_height = 3, max_height = 0.4 },
   completion = true,
   mappings = {},
@@ -15,8 +16,15 @@ function M.setup(opts)
   vim.validate("cmd", config.cmd, "table")
   vim.validate("args", config.args, "table")
   vim.validate("placement", config.placement, function(value)
-    return value == "free"
-  end, '"free"')
+    return value == "sidebar" or value == "free"
+  end, '"sidebar" or "free"')
+  vim.validate("sidebar", config.sidebar, "table")
+  vim.validate("sidebar.side", config.sidebar.side, function(value)
+    return value == "left" or value == "right"
+  end, '"left" or "right"')
+  for _, name in ipairs({ "width", "min_width", "max_width" }) do
+    vim.validate("sidebar." .. name, config.sidebar[name], "number")
+  end
   vim.validate("composer", config.composer, "table")
   vim.validate("composer.min_height", config.composer.min_height, "number")
   vim.validate("composer.max_height", config.composer.max_height, "number")
@@ -84,6 +92,37 @@ function M.show(agent)
   return agent
 end
 
+-- Hide or show the last agent: the sidebar of this tab, or its free history window.
+function M.toggle()
+  local Composer, Sidebar = require("dyadic.composer"), require("dyadic.sidebar")
+  if config.placement == "sidebar" then
+    if Sidebar.window() then
+      if not Sidebar.close() then
+        vim.notify("Dyadic: the sidebar is the only window in this tab", vim.log.levels.WARN)
+      end
+      return
+    end
+    return M.show()
+  end
+  local agent = M.get() or last
+  if not agent or agent.closed then
+    return M.show()
+  end
+  local wins = vim.tbl_filter(function(win)
+    return vim.api.nvim_win_get_config(win).relative == ""
+  end, vim.fn.win_findbuf(agent.history_buf))
+  local here = vim.tbl_filter(function(win)
+    return vim.api.nvim_win_get_tabpage(win) == vim.api.nvim_get_current_tabpage()
+  end, wins)
+  if #here == 0 then
+    return M.show(agent)
+  end
+  Composer.close(agent)
+  for _, win in ipairs(here) do
+    pcall(vim.api.nvim_win_close, win, false)
+  end
+end
+
 function M.action(name)
   local agent = M.get()
   if not agent then
@@ -112,6 +151,10 @@ function M.command(text)
   end
   if text == "" then
     M.show()
+    return
+  end
+  if text == "toggle" then
+    M.toggle()
     return
   end
   if text == "agents" then
@@ -148,7 +191,7 @@ function M.command(text)
 end
 
 function M.complete(prefix)
-  local items = { "new", "agents", "composer", "abort", "close", "submit", "follow_up", "dequeue" }
+  local items = { "new", "toggle", "agents", "composer", "abort", "close", "submit", "follow_up", "dequeue" }
   vim.list_extend(items, require("dyadic.commands").names)
   local result, seen = {}, {}
   for _, item in ipairs(items) do

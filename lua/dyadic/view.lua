@@ -4,6 +4,7 @@ local text = require("dyadic.text")
 local History = require("dyadic.history")
 local Detail = require("dyadic.detail")
 local Composer = require("dyadic.composer")
+local Sidebar = require("dyadic.sidebar")
 local lines_of, one_line, sorted_keys = text.lines_of, text.one_line, text.sorted_keys
 
 local views = {}
@@ -83,6 +84,10 @@ local function window_options(win)
   apply_history_options(win)
 end
 
+function M.agent_of(buf)
+  return views[buf]
+end
+
 -- A window dyadic created now shows the history; leaving it restores global defaults.
 function M.adopt(win)
   local saved = { buf = api.nvim_win_get_buf(win), options = {} }
@@ -117,10 +122,24 @@ local actions = {
   detail = { "Detail", "K", "history" },
   next_message = { "NextMessage", "g]", "history" },
   prev_message = { "PrevMessage", "g[", "history" },
+  goto_file = { "GotoFile", "gf", "history" },
+  goto_file_line = { "GotoFileLine", "gF", "history" },
+  split_file = { "SplitFile", "<C-w>f", "history" },
 }
 M.actions = actions
 
-local history_actions = { toggle_group = true, detail = true, next_message = true, prev_message = true }
+local history_actions = {
+  toggle_group = true,
+  detail = true,
+  next_message = true,
+  prev_message = true,
+  goto_file = true,
+  goto_file_line = true,
+  split_file = true,
+}
+-- File actions -> { native key, Sidebar.open_file mode }.
+local file_actions =
+  { goto_file = { "gf", "edit" }, goto_file_line = { "gF", "gF" }, split_file = { "<C-w>f", "split" } }
 
 -- A window in the current tab that shows the agent's history, preferring the anchor.
 local function history_window(agent)
@@ -214,6 +233,15 @@ end
 function M.action(agent, name)
   if name == "next_message" or name == "prev_message" then
     jump_message(agent, name == "next_message")
+    return
+  end
+  if file_actions[name] then
+    -- The sidebar keeps its buffer; files open in the main area instead.
+    if Sidebar.contains(api.nvim_get_current_win()) then
+      Sidebar.open_file(agent, file_actions[name][2])
+    else
+      native(file_actions[name][1])
+    end
     return
   end
   local row = row_at_cursor(agent)
@@ -383,7 +411,7 @@ function M.show(agent)
     agent.composer_buf = create_buffer(agent, "dyadic_composer", "composer", true)
     M.bind(agent)
   end
-  local anchor = free_placement(agent)
+  local anchor = agent.config.placement == "sidebar" and Sidebar.show(agent) or free_placement(agent)
   for _, win in ipairs(vim.fn.win_findbuf(agent.history_buf)) do
     if not window_states[win] then
       window_options(win)
