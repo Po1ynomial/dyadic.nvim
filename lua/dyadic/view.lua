@@ -130,7 +130,7 @@ local function row_at_cursor(s)
 end
 
 local function native(keys)
-  pcall(vim.cmd, "normal! " .. vim.keycode(keys))
+  pcall(api.nvim_command, "normal! " .. vim.keycode(keys))
 end
 
 local function toggle_group(s, key)

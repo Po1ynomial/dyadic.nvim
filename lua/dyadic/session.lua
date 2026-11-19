@@ -436,7 +436,7 @@ function Session:check_files()
         and not vim.bo[buf].modified
         and vim.api.nvim_buf_get_name(buf) ~= ""
       then
-        pcall(vim.cmd, "silent! checktime " .. buf)
+        pcall(vim.api.nvim_command, "silent! checktime " .. buf)
       end
     end
   end, 25)

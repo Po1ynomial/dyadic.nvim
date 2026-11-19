@@ -76,17 +76,14 @@ T["file-changing tools check only unmodified file buffers"] = function()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "mine" })
     _G.bufs = { vim.fn.bufnr(clean), vim.fn.bufnr(dirty) }
     _G.checked = {}
-    local cmd = vim.cmd
-    vim.cmd = setmetatable({}, {
-      __index = cmd,
-      __call = function(_, command)
-        local buf = type(command) == "string" and command:match("^silent! checktime (%d+)$")
-        if buf then
-          table.insert(_G.checked, tonumber(buf))
-        end
-        return cmd(command)
-      end,
-    })
+    local command = vim.api.nvim_command
+    vim.api.nvim_command = function(text)
+      local buf = text:match("^silent! checktime (%d+)$")
+      if buf then
+        table.insert(_G.checked, tonumber(buf))
+      end
+      return command(text)
+    end
   ]],
     { clean, dirty }
   )
