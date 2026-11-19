@@ -77,6 +77,10 @@ end)
 
 T("focus actions work through the Lua API", function()
   local agent = H.open()
+  -- From any buffer, actions go to the last agent used.
+  vim.cmd("tabnew")
+  require("dyadic").action("focus_composer")
+  eq(vim.api.nvim_get_current_buf(), agent.composer_buf)
   vim.api.nvim_set_current_win(H.history_win(agent))
   require("dyadic").action("focus_composer")
   eq(vim.api.nvim_get_current_buf(), agent.composer_buf)

@@ -126,9 +126,9 @@ function M.toggle()
 end
 
 function M.action(name)
-  local agent = M.get()
-  if not agent then
-    vim.notify("Dyadic: this buffer is not a dyadic history or composer", vim.log.levels.WARN)
+  local agent = M.get() or last
+  if not agent or agent.closed then
+    vim.notify("Dyadic: open an agent first with :Dyadic", vim.log.levels.WARN)
     return
   end
   if name == "submit" then
