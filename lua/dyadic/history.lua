@@ -34,8 +34,8 @@ function M.messages(entries, leaf_id)
   for i = kept, #branch do
     local entry = branch[i]
     local message
-    if entry.type == "message" then
-      message = entry.message
+    if entry.type == "message" and type(entry.message) == "table" then
+      message = vim.tbl_extend("force", {}, entry.message)
     elseif entry.type == "custom_message" then
       message = {
         role = "custom",
@@ -55,6 +55,10 @@ function M.messages(entries, leaf_id)
     elseif entry.type == "branch_summary" then
       message = { role = "branchSummary", summary = entry.summary, fromId = entry.fromId, timestamp = entry.timestamp }
     end
+    -- Entry IDs stay stable across history re-fetches, so rendering can cache by them.
+    if message then
+      message._entry_id = entry.id
+    end
     -- Earlier summaries in the retained range are valid context entries too.
     if message and not (boundary and i < boundary and message.role == "system") then
       messages[#messages + 1] = message
@@ -63,6 +67,7 @@ function M.messages(entries, leaf_id)
       local usage = entry.usage
       messages[#messages + 1] = {
         role = "usage",
+        _entry_id = entry.id and entry.id .. ":usage",
         kind = entry.kind or entry.type,
         usage = usage,
         content = string.format(

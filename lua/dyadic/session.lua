@@ -21,11 +21,11 @@ function Session.new(id, config, on_close)
     statuses = {},
     compaction_queue = {},
     queue_flush_version = 0,
-    status = "Starting pi",
+    phase = "Starting pi",
     active = false,
     closed = false,
-    show_thinking = true,
-    expand_tools = false,
+    -- Activity group key -> true/false when the user expanded or collapsed it.
+    expanded = {},
     history_version = 0,
     refresh_version = 0,
   }, Session)
@@ -53,7 +53,7 @@ function Session.new(id, config, on_close)
         return
       end
       self.active, self.partial = false, nil
-      self.status = code == 0 and signal == 0 and "Pi exited" or string.format("Pi exited (code %s)", code)
+      self.phase = code == 0 and signal == 0 and "Pi exited" or string.format("Pi exited (code %s)", code)
       for _, tool in pairs(self.tools) do
         tool.running = false
       end
@@ -69,7 +69,7 @@ function Session.new(id, config, on_close)
   })
   self.rpc = rpc
   if not rpc then
-    self.status = "Pi failed to start"
+    self.phase = "Pi failed to start"
     self:notice(err, "error")
   else
     self:refresh()
@@ -157,6 +157,39 @@ function Session:log(text)
   end
 end
 
+-- Session status as data, for the transcript statusline and user statuslines.
+function Session:status()
+  local state, stats = self.state or {}, self.stats or {}
+  local model = type(state.model) == "table" and state.model or {}
+  local usage = type(stats.contextUsage) == "table" and stats.contextUsage or nil
+  local extensions = {}
+  local keys = vim.tbl_keys(self.statuses or {})
+  table.sort(keys)
+  for _, key in ipairs(keys) do
+    extensions[#extensions + 1] = self.statuses[key]
+  end
+  local function number(value)
+    return type(value) == "number" and value or nil
+  end
+  return {
+    title = self.title or state.sessionName or "Dyadic",
+    status = self.phase or "Idle",
+    active = self.active,
+    session_id = state.sessionId,
+    session_file = state.sessionFile,
+    model = model.id and ((model.provider and model.provider .. "/" or "") .. model.id) or nil,
+    thinking = state.thinkingLevel,
+    context = usage and {
+      tokens = number(usage.tokens),
+      window = number(usage.contextWindow),
+      percent = number(usage.percent),
+    } or nil,
+    tokens = type(stats.tokens) == "table" and number(stats.tokens.total) or nil,
+    cost = number(stats.cost),
+    extensions = extensions,
+  }
+end
+
 function Session:get_draft()
   return View.get_draft(self)
 end
@@ -204,11 +237,12 @@ function Session:refresh(callback)
       self.queue = { steering = {}, followUp = {} }
       self.compaction_queue = {}
       self.queue_flush_version = self.queue_flush_version + 1
+      self.expanded, self.run_failed, self._render_cache = {}, nil, nil
       ExtensionUI.dispose_dialogs(self)
     end
     self.state = state
     self.active = state.isStreaming == true or state.isCompacting == true
-    self.status = state.isCompacting and "Compacting" or (self.active and "Working" or "Idle")
+    self.phase = state.isCompacting and "Compacting" or (self.active and "Working" or "Idle")
     self:sync_history(function(history_err)
       if version ~= self.refresh_version then
         return
@@ -368,12 +402,8 @@ function Session:flush_compaction_queue(will_retry)
 end
 
 function Session:action(name)
-  if name == "toggle_thinking" then
-    self.show_thinking = not self.show_thinking
-    self:render()
-  elseif name == "toggle_tools" then
-    self.expand_tools = not self.expand_tools
-    self:render()
+  if View.actions[name] and View.actions[name][3] == "transcript" then
+    View.action(self, name)
   elseif name == "focus_draft" or name == "focus_transcript" then
     View.focus(self, name == "focus_draft")
   elseif name == "cycle_thinking" or name == "cycle_model" then
@@ -419,9 +449,14 @@ function Session:event(record)
     return
   end
   if kind == "agent_start" then
-    self.active, self.status = true, "Working"
+    self.active, self.phase, self.run_failed = true, "Working", nil
   elseif kind == "agent_settled" then
-    self.active, self.status = false, record.aborted and "Aborted" or "Idle"
+    self.active, self.phase = false, record.aborted and "Aborted" or "Idle"
+    -- A failed run keeps its trailing activity expanded, showing where it stopped.
+    local last = self.messages[#self.messages]
+    self.run_failed = record.aborted == true
+      or (last and last.role == "assistant" and (last.stopReason == "error" or last.stopReason == "aborted"))
+      or nil
     self:refresh()
   elseif kind == "message_start" then
     self.history_version = self.history_version + 1
@@ -490,7 +525,7 @@ function Session:event(record)
   elseif kind == "thinking_level_changed" then
     self.state.thinkingLevel = record.level
   elseif kind == "compaction_start" then
-    self.state.isCompacting, self.active, self.status = true, true, "Compacting"
+    self.state.isCompacting, self.active, self.phase = true, true, "Compacting"
   elseif kind == "compaction_end" then
     self.state.isCompacting = false
     self.history_version = self.history_version + 1
@@ -502,16 +537,16 @@ function Session:event(record)
     if record.aborted then
       self:notice("Compaction cancelled")
     end
-    self.status = record.willRetry and "Recovering" or (self.active and "Working" or "Idle")
+    self.phase = record.willRetry and "Recovering" or (self.active and "Working" or "Idle")
     self:flush_compaction_queue(record.willRetry)
   elseif kind == "auto_retry_start" or kind == "summarization_retry_scheduled" then
-    self.active, self.status = true, "Retrying"
+    self.active, self.phase = true, "Retrying"
     self:notice(
       string.format("Retry %s in %sms: %s", record.attempt or "?", record.delayMs or 0, record.errorMessage or ""),
       "warning"
     )
   elseif kind == "summarization_retry_attempt_start" then
-    self.status = "Retrying " .. (record.source or "summary")
+    self.phase = "Retrying " .. (record.source or "summary")
   elseif kind == "auto_retry_end" then
     if record.finalError then
       self:notice(record.finalError, "error")

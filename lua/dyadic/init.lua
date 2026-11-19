@@ -5,6 +5,7 @@ local defaults = {
   draft_height = 6,
   completion = true,
   mappings = {},
+  layout = nil,
 }
 local config = vim.deepcopy(defaults)
 local sessions, next_id, last = {}, 0, nil
@@ -16,6 +17,7 @@ function M.setup(opts)
   vim.validate("draft_height", config.draft_height, "number")
   vim.validate("completion", config.completion, "boolean")
   vim.validate("mappings", config.mappings, "table")
+  vim.validate("layout", config.layout, "function", true)
   assert(
     #config.cmd > 0 and config.draft_height >= 1,
     "dyadic: cmd must not be empty and draft_height must be positive"
@@ -115,7 +117,7 @@ function M.command(text)
           "%s | %s | %s",
           s.state.sessionName or s.state.sessionId or ("pi " .. s.id),
           s.cwd,
-          s.status
+          s.phase
         )
       end,
     }, function(s)

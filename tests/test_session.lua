@@ -11,14 +11,14 @@ local T = MiniTest.new_set({
 
 T["starts idle and reports the model"] = function()
   child.open()
-  eq(child.lua_get("_G.S.status"), "Idle")
+  eq(child.lua_get("_G.S.phase"), "Idle")
   eq(child.lua_get("_G.S.state.model.id"), "fake-model")
 end
 
 T["submit sends a prompt and clears the draft"] = function()
   child.open()
   child.lua("_G.S:set_draft('hello'); _G.S:submit()")
-  child.wait("#_G.S.messages == 2 and _G.S.status == 'Idle'")
+  child.wait("#_G.S.messages == 2 and _G.S.phase == 'Idle'")
   eq(child.draft(), "")
   eq(child.lua_get("_G.S.messages[2].content[1].text"), "echo: hello")
 end
@@ -37,7 +37,7 @@ T["status resyncs after a compaction pi started itself"] = function()
     { type = "compaction_start", reason = "threshold" },
     { type = "compaction_end", reason = "threshold", aborted = false, willRetry = false },
   } })]])
-  child.wait("_G.S.status == 'Idle' and not _G.S.active")
+  child.wait("_G.S.phase == 'Idle' and not _G.S.active")
 end
 
 T["notices go through vim.notify, not the transcript"] = function()
@@ -52,14 +52,14 @@ end
 T["a crash notifies once with the stderr log path"] = function()
   child.open()
   child.lua([[_G.S:request("test_crash", {}); _G.S:request("get_state", {})]])
-  child.wait("_G.S.status:match('^Pi exited') ~= nil")
+  child.wait("_G.S.phase:match('^Pi exited') ~= nil")
   child.settle()
   local notes = child.lua_get("_G.notes")
   eq(#notes, 1)
   local path = notes[1].msg:match("stderr log: (.+)$")
   eq(path ~= nil, true)
   eq(vim.fn.readfile(path), { "fake stack trace" })
-  eq(child.lua_get("_G.S.status"), "Pi exited (code 3)")
+  eq(child.lua_get("_G.S.phase"), "Pi exited (code 3)")
 end
 
 -- Headless Neovim also checks timestamps on its own, so observe dyadic's checktime calls.

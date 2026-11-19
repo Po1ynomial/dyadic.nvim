@@ -4,7 +4,8 @@
 --   test_emit { events = {...} }        writes each record to stdout
 --   test_set  { state, entries, queue } replaces fake state
 local scenario = {}
-if _G.arg[1] and _G.arg[1] ~= "" then
+-- dyadic appends `--mode rpc`; the scenario path, when given, comes first.
+if _G.arg[1] and _G.arg[1] ~= "" and _G.arg[1]:sub(1, 2) ~= "--" then
   scenario = dofile(_G.arg[1])
 end
 
