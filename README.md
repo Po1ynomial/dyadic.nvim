@@ -1,8 +1,8 @@
 # dyadic.nvim
 
-A native Neovim client for [pi](https://pi.dev), using its stock RPC mode. Each conversation is one pi process and one read-only transcript buffer; a companion draft buffer is where you write, with normal Neovim editing. No embedded terminal and no required UI libraries.
+A native Neovim client for [pi](https://pi.dev), using its stock RPC mode. An agent is one pi process with two buffers: a read-only history of the session and a composer where you write the next message with normal Neovim editing. No embedded terminal and no required UI libraries.
 
-The transcript holds only message text, so it stays plain markdown. Tool calls, thinking, shell commands, and queued input are overlay rows; activity collapses into a summary once the agent answers, and `K` opens any item in its own buffer.
+By default the agent lives in a sidebar: the history on top, the composer below it, both kept in place while you work in the rest of the tab. The history holds only message text, so it stays plain markdown; tool calls, thinking, and shell commands are overlay rows that collapse once the agent answers, and `K` opens any of them in a float. The composer shows the agent's phase, queued messages, context use, cost, and model around your draft.
 
 ## Requirements
 
@@ -17,18 +17,20 @@ Install this repository with your plugin manager, or add it to `runtimepath`. Se
 require('dyadic').setup({
   cmd = { 'pi' },
   args = {}, -- pi startup options, such as { '--model', 'provider/id' }
-  draft_height = 6,
+  placement = 'sidebar', -- or 'free'
+  sidebar = { side = 'right', width = 0.35, min_width = 40, max_width = 120 },
+  composer = { min_height = 3, max_height = 0.4 },
+  statusline = true,
   completion = true,
   mappings = {},
-  layout = nil, -- function(session) to replace the default split
 })
 ```
 
-Run `:Dyadic` to open a conversation. Write in the draft, then press Enter in Normal mode to submit.
+Run `:Dyadic` to show an agent. Write in the composer, then press Enter in Normal mode to submit. `:Dyadic toggle` hides and shows the sidebar; `:Dyadic new` opens another agent.
 
 ## Documentation
 
-The full reference is in Neovim's help: `:help dyadic`. It covers the transcript and detail buffers (`:help dyadic-transcript`), mappings (`:help dyadic-mappings`), pi commands, the Lua API, file reloading, and protocol limits.
+The full reference is in Neovim's help: `:help dyadic`. It covers windows and placements (`:help dyadic-windows`), the history and details (`:help dyadic-history`), the composer, mappings, pi commands, the Lua API, file reloading, and protocol limits. [GLOSSARY.md](GLOSSARY.md) defines the terms the code and docs use.
 
 ## Development
 
@@ -36,7 +38,7 @@ Tests run with [just](https://github.com/casey/just) and need nothing else: each
 
 ```sh
 just test                          # all tests
-just test tests/test_render.lua    # selected files
+just test tests/test_history.lua   # selected files
 just test-real-pi                  # smoke test against the real pi, still without model calls
 just fmt                           # stylua
 ```

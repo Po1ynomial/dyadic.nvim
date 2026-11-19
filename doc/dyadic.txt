@@ -5,24 +5,26 @@ CONTENTS                                                     *dyadic-contents*
 
   1. Introduction ........................................ |dyadic-intro|
   2. Setup ............................................... |dyadic-setup|
-  3. Conversations ..................................... |dyadic-conversation|
-  4. Transcript .......................................... |dyadic-transcript|
-  5. Mappings ............................................ |dyadic-mappings|
-  6. Pi commands ....................................... |dyadic-pi-commands|
-  7. Neovim commands ..................................... |dyadic-commands|
-  8. Lua API ............................................. |dyadic-api|
-  9. Editor files ........................................ |dyadic-files|
- 10. Extensions and protocol limits ...................... |dyadic-extensions|
- 11. Highlights .......................................... |dyadic-highlights|
+  3. Agents .............................................. |dyadic-agents|
+  4. Windows ............................................. |dyadic-windows|
+  5. History ............................................. |dyadic-history|
+  6. Composer ............................................ |dyadic-composer|
+  7. Mappings ............................................ |dyadic-mappings|
+  8. Pi commands ....................................... |dyadic-pi-commands|
+  9. Neovim commands ..................................... |dyadic-commands|
+ 10. Lua API ............................................. |dyadic-api|
+ 11. Editor files ........................................ |dyadic-files|
+ 12. Extensions and protocol limits ...................... |dyadic-extensions|
+ 13. Highlights .......................................... |dyadic-highlights|
 
 ==============================================================================
 1. INTRODUCTION                                                 *dyadic-intro*
 
 dyadic.nvim talks to pi (https://pi.dev) through pi's stock RPC mode
-(`pi --mode rpc`). Each conversation is one pi process and one read-only
-transcript buffer; a companion draft buffer is where you write input with
-normal Neovim editing. There is no embedded terminal and no required UI
-library.
+(`pi --mode rpc`). An agent is one pi process with two buffers: the
+read-only history, which shows the messages of pi's current session, and the
+composer, where you write the next message with normal Neovim editing. There
+is no embedded terminal and no required UI library.
 
 Requirements:
 - Neovim 0.11 or newer.
@@ -36,10 +38,17 @@ Setup is optional. Defaults:
     require("dyadic").setup({
       cmd = { "pi" },
       args = {},
-      draft_height = 6,
+      placement = "sidebar",
+      sidebar = {
+        side = "right",
+        width = 0.35,
+        min_width = 40,
+        max_width = 120,
+      },
+      composer = { min_height = 3, max_height = 0.4 },
+      statusline = true,
       completion = true,
       mappings = {},
-      layout = nil,
     })
 <
 `cmd`           Executable argv array. dyadic appends `--mode rpc`; do not
@@ -47,98 +56,188 @@ Setup is optional. Defaults:
 `args`          Ordinary pi startup options, such as `--model` or
                 `--session-dir`. Pi still loads its own configuration,
                 tools, extensions, skills, and templates.
-`draft_height`  Height of the draft split in the default layout.
-`completion`    Set the draft's 'omnifunc' (see |dyadic-completion|).
+`placement`     Where the history window goes: `"sidebar"` or `"free"`
+                (see |dyadic-windows|).
+`sidebar`       Side of the tab, starting width as a share of the editor,
+                and its limits in columns.
+`composer`      Limits of the composer's height in lines. A `max_height`
+                below 1 is a share of the space the history and composer
+                share.
+`statusline`    Show which buffer a window holds and pi's session ID in the
+                statusline of dyadic's windows. Set to `false` to keep yours.
+`completion`    Set the composer's 'omnifunc' (see |dyadic-completion|).
 `mappings`      Override or disable default keys (see |dyadic-mappings|).
-`layout`        Function `layout(session)` that shows `session.buf` and
-                `session.draft` in windows, replacing the default split.
-                Use it to build floating or sidebar layouts.
 
-Configuration applies to conversations opened afterwards. Each conversation
-captures Neovim's effective cwd when it opens, including window- or tab-local
-cwd, and keeps it after later |:cd| commands.
+Configuration applies to agents opened afterwards. Each agent captures
+Neovim's effective cwd when it opens, including window- or tab-local cwd,
+and keeps it after later |:cd| commands.
 
 Pi's environment is Neovim's, except that an inherited `$NVIM` or
 `$NVIM_LISTEN_ADDRESS` is removed. Neovim sets `$NVIM` only for |jobstart()|
 and |terminal| children, so an inherited value names an outer Neovim.
 
 ==============================================================================
-3. CONVERSATIONS                                         *dyadic-conversation*
+3. AGENTS                                                      *dyadic-agents*
 
-`:Dyadic` opens a conversation. The default layout puts the transcript in
-the current window and the draft in a split below it. Both are scratch
-buffers named `dyadic://<id>/transcript` and `dyadic://<id>/draft`; you can
-show them in any windows. Windows do not own processes.
+`:Dyadic` shows the agent you used last, or opens one. `:Dyadic new` opens
+another agent and pi process. An agent shows one pi session at a time;
+`/new` and `/resume` change the session without changing the agent.
 
-Hiding a conversation does not interrupt it. Deleting its transcript buffer
-or running `:Dyadic close` ends its process and disposes its draft, detail
-buffers, and pending extension dialogs. Exiting Neovim ends every pi process
-dyadic started. Saved pi session files are never deleted. Deleting only the
-draft leaves the conversation running; `:Dyadic show` recreates an empty
-draft.
+The history and composer are scratch buffers named `dyadic://<id>/history`
+and `dyadic://<id>/composer`. Hiding them does not interrupt the agent.
+Deleting the history buffer or running `:Dyadic close` ends the agent's
+process and disposes its composer, details, and pending extension dialogs.
+Saved pi session files are never deleted.
 
-Status: the transcript window's statusline shows the title, state, model,
-thinking level, context use, total tokens, cost, and extension status
-entries. The same data is available from `session:status()`
-(|dyadic-api|).
+Quit guard                                                *dyadic-quit-guard*
+While any agent streams, compacts, retries, or runs a shell command, quitting
+Neovim is refused like quitting with unsaved changes: |:q|, |:qa|, and |:wqa|
+fail with E37 or E162, and a :q that would exit explains why. |:qa!| still
+quits and ends every pi process dyadic started. The guard is a hidden
+buffer, `dyadic://agent-working`, that stays modified while work is in
+progress.
 
 Notices go through |vim.notify()|. Pi's stderr goes to a temporary log file
 instead; if pi exits unexpectedly, one notification gives the exit code and
 the log's path.
 
 ==============================================================================
-4. TRANSCRIPT                                              *dyadic-transcript*
+4. WINDOWS                                                    *dyadic-windows*
 
-The transcript buffer contains only message text, so it is plain markdown.
-Everything else is overlay text drawn on empty lines:
+The history window is the center. The composer is a split directly below one
+history window, and an agent has at most one composer: opening it under
+another history window moves it there.
 
-- Speaker rows: `── You`, `── Assistant · model`, extension message types.
-- Activity rows: one per tool call or thinking block.
-- Shell commands run with `!` or `!!`, compaction and branch summaries,
-  usage entries, errors, and aborts.
-- Queued steering and follow-up input, pinned to the end until pi takes it.
+While attached, the history window and its composer stay together:
+- The composer's height follows its content (draft, widgets, and footer)
+  within `composer.min_height` and `composer.max_height`; resizing it by
+  hand is undone.
+- A composer moved elsewhere, for example with CTRL-W K, is put back.
+- Windows split inside the pair, such as |:vsplit| in the history window,
+  move out beside the window you last used outside it.
+- The composer refuses other buffers ('winfixbuf').
+- Showing another buffer in the history window closes the composer first;
+  the draft is kept.
+- Closing the history window closes its composer. Closing the composer
+  leaves the history window.
+- |:q| on a history window whose only neighbour is its composer closes both,
+  as if the history window were alone. A composer left alone otherwise, as
+  after |:only|, shows the history instead.
 
-Activity groups                                      *dyadic-activity-groups*
+Without a composer, a history window is an ordinary window.
+
+Placements                                                *dyadic-placement*
+`"sidebar"` (default): each tab can have one sidebar, a column at the edge of
+the tab with one agent's history and its composer.
+- Showing another agent swaps it into the same windows. The previous agent
+  keeps running and keeps its draft.
+- The width starts at `sidebar.width` of the editor within `min_width` and
+  `max_width`, and leaves the main area at least 40 columns. A manual resize
+  is remembered as a share of the editor and applied again when the editor
+  is resized. CTRL-W = leaves the sidebar alone.
+- The sidebar window refuses other buffers. `gf`, `gF`, and CTRL-W f open
+  files in the main area, resolving relative paths against pi's working
+  directory. Windows split inside the sidebar move to the main area.
+- |:q| on the last window outside the sidebar closes the sidebar too, so the
+  tab closes or Neovim exits. When the quit is refused, the sidebar comes
+  back.
+
+`"free"`: `:Dyadic` shows the history in a history window of the tab, or in
+the current window, with the composer below. The history buffer can be shown
+in any number of windows.
+
+==============================================================================
+5. HISTORY                                                    *dyadic-history*
+
+The history buffer contains only message text, so it is plain markdown.
+Everything else is overlay text drawn on empty lines, and every block has
+one blank line around it:
+
+  `▍ You`                       A speaker row; for the assistant, the model
+  `▍ Assistant   model · 1m 5s` and the run's time are right-aligned
+  `▎ ▸ thinking · 2 tools`       A collapsed group of activities
+  `▎ ▾ 2 tools`                  An expanded group, one line per activity:
+  `▎   ◦ bash make · done 1.2s`
+  `▌ $ ls · exit 0`              A shell command run with `!` or `!!`
+  `◇ Context compacted`          A compaction
+  `↳ Branch summary`             A branch summary
+  `usage · ...`                  Usage billed outside messages
+  `✗ ...`                        An error or abort
+  `⧗ steer · ...`                Queued messages, pinned to the end
+                               until pi takes them
+
+A run is one user message and all of the agent's work in reply. Its time
+counts up while it is live; afterwards it runs to when pi saved the run's
+last entry. A tool's duration shows only when pi reported it live.
+
+Groups                                                      *dyadic-groups*
 Consecutive tool calls and thinking blocks form a group. Once agent text
-follows a group, it collapses into one summary row, such as
-`▸ thinking · 3 tools · 1 error`. A group at the end of a run stays expanded
+follows a group, it collapses. A group at the end of a run stays expanded
 while pi works on it, and after the run was aborted or failed. History loaded
 from a saved session starts collapsed.
 
-In the transcript, `za` toggles the group under the cursor, `K` opens the
-row under the cursor in a detail buffer (or expands a collapsed summary), and
-`g]` / `g[` jump between speakers. Off a row, `za` and `K` keep their native
-behavior.
+`za` toggles the group under the cursor. `K` expands a collapsed group,
+opens the detail of an activity or other row, and keeps its native behavior
+elsewhere. `g]` / `g[` jump between speakers.
 
-Detail buffers                                                *dyadic-details*
-Each item opens in its own scratch buffer, `dyadic://<id>/detail/<key>`,
-with a filetype that fits its content: the file's type for `read` and
-`write`, `diff` for `edit` diffs, `markdown` for thinking and summaries. A
-header above the first line names the tool, its status, and for `bash` the
-command. A detail buffer keeps updating while it is visible, so it is where
-a running command's output appears. `q` closes it; hiding it wipes it.
+Detail                                                       *dyadic-detail*
+`K` opens the full content of an activity, shell command, summary, or error
+in a float over most of the editor. Its title is the tool, its status, and
+its duration; other header lines, such as the command or path, stay above
+the content. The content has a fitting filetype: the file's type for `read`
+and `write`, `diff` for `edit` diffs, `markdown` for thinking and summaries.
+The detail keeps updating while it is open, so it is where a running
+command's output appears.
+
+`q`, <Esc>, and `K` close the detail, and so does leaving it. `gf`, `gF`, and
+CTRL-W f open files in the main area and close the detail.
 
 Following output
-A transcript window follows new output only while its cursor is on the last
-line. Move the cursor up to read earlier messages without being moved.
+A history window follows new output only while its cursor is on the last
+line. Move the cursor up to read earlier messages without being moved. The
+detail follows the same rule.
 
 Filetypes
-The transcript and draft use the filetypes `dyadic` and `dyadic_input`, so
-markdown ftplugins, LSP servers, and linters do not attach. Both are
+The history and composer use the filetypes `dyadic` and `dyadic_composer`,
+so markdown ftplugins, LSP servers, and linters do not attach. Both are
 registered as markdown for treesitter. To use a markdown rendering plugin,
 add `dyadic` to its filetype list.
 
-Session history follows pi's active branch and compaction boundaries. It
-shows raw conversation entries, not model-only `context_edit` replacements,
-and not the system prompt or extension messages marked hidden.
+History follows pi's active branch and compaction boundaries: the latest
+compaction's summary, then the entries it kept, then later entries. It
+shows raw session entries, not model-only `context_edit` replacements, and
+not the system prompt or extension messages marked hidden.
 
 ==============================================================================
-5. MAPPINGS                                                  *dyadic-mappings*
+6. COMPOSER                                                  *dyadic-composer*
+
+The composer holds the draft, the unsent text, plus status around it:
+
+- Its window bar shows a spinner and the agent's phase while it works, or
+  `ready`, with the numbers of queued steer, follow-up, and after-compaction
+  messages on the right.
+- Below the draft come extension widgets placed below the editor, then the
+  footer:
+    `ctx 45%/200k (auto) · $0.123`   Context use, auto-compaction, cost
+    `model · high`                   Model, and thinking level for models
+                                   that reason
+    `extension statuses`
+  The percentage is `?` while pi reports none, as right after a compaction,
+  and turns to warning and error colors above 70% and 90%. A zero cost is
+  hidden.
+- Extension widgets placed above the editor come before the draft.
+
+The history window's bar shows the session title, with pi's working
+directory on the right. With `statusline` on, the statusline of both windows
+names the buffer and pi's session ID.
+
+==============================================================================
+7. MAPPINGS                                                  *dyadic-mappings*
 
 Defaults are buffer-local Normal-mode mappings. Insert and Visual mode keep
 native Neovim keys. `:nmap <buffer>` lists the active set with descriptions.
 
-Draft:
+Composer:
 
   Key               Action             Behavior ~
   <CR>              `submit`             Submit; steer while pi is working
@@ -148,21 +247,24 @@ Draft:
   <C-l>             `model`              Select a model
   <S-Tab>           `cycle_thinking`     Cycle thinking level
   <localleader>s    `settings`           Select an RPC-supported setting
-  <localleader>i    `focus_draft`        Focus the draft
-  <localleader>r    `focus_transcript`   Focus the transcript
+  <localleader>i    `focus_composer`     Focus the composer
+  <localleader>r    `focus_history`      Focus the history
 
-Transcript:
+History:
 
   Key               Action             Behavior ~
-  za                `toggle_activity`    Expand or collapse a group
-  K                 `details`            Open the row's detail buffer
+  za                `toggle_group`       Expand or collapse a group
+  K                 `detail`             Open the row's detail, or expand
   g]                `next_message`       Next speaker
   g[                `prev_message`       Previous speaker
-  <localleader>i    `focus_draft`        Focus the draft
+  gf                `goto_file`          In the sidebar: open in the main area
+  gF                `goto_file_line`     Same, at the line number
+  <C-w>f            `split_file`         Same, in a split
+  <localleader>i    `focus_composer`     Open the composer below this window
 
 Actions without a default key: `thinking`, `cycle_model`, `copy`, `new`,
 `resume`. Every action has a buffer-local <Plug> mapping named after it, for
-example `<Plug>(DyadicSubmit)`, `<Plug>(DyadicToggleActivity)`,
+example `<Plug>(DyadicSubmit)`, `<Plug>(DyadicToggleGroup)`,
 `<Plug>(DyadicCopy)`.
 
 Override or disable defaults by action name:
@@ -180,20 +282,20 @@ not replaced. Terminal support for modified Enter and Tab varies; remap those
 actions when needed.
 
                                                            *dyadic-completion*
-In the draft, |i_CTRL-X_CTRL-O| completes slash commands at the start of the
-line and paths from the conversation's cwd, including `@`-prefixed path
+In the composer, |i_CTRL-X_CTRL-O| completes slash commands at the start of
+the line and paths from the agent's cwd, including `@`-prefixed path
 references. Completion plugins with an omnifunc source (such as blink.cmp's
 `complete_func` or cmp-omni) use it too. Nothing from your buffers is
 attached to a prompt unless you type it.
 
 ==============================================================================
-6. PI COMMANDS                                            *dyadic-pi-commands*
+8. PI COMMANDS                                            *dyadic-pi-commands*
 
-Type these in the draft and submit:
+Type these in the composer and submit:
 
   `/model [provider/model or search]`  Select a model
   `/thinking [level]`                  Select a supported thinking level
-  `/new`                               Start a fresh session in this buffer
+  `/new`                               Start a fresh session in this agent
   `/resume [session-file or all]`      Pick a saved session; `all` includes
                                      other working directories
   `/name [name]`                       Set or show the session name
@@ -206,7 +308,7 @@ Type these in the draft and submit:
   `/copy`                              Copy the last assistant response
   `/settings [name] [value]`           Auto-compaction, auto-retry, steering
                                      mode, or follow-up mode
-  `/quit`                              Close this conversation
+  `/quit`                              Close this agent
   `!command`                           Run a shell command; its output joins
                                      pi's context
   `!!command`                          Run a shell command; its output stays
@@ -226,49 +328,55 @@ workflows, trust management, and `/hotkeys` (use `:nmap <buffer>`).
 The resume picker honors `--session-dir`, `PI_CODING_AGENT_SESSION_DIR`,
 project and user `sessionDir`, and `PI_CODING_AGENT_DIR`; an active session's
 directory is authoritative. Metadata is cached by file size and modification
-time. dyadic keeps no conversation database of its own.
+time. dyadic keeps no database of its own.
 
 ==============================================================================
-7. NEOVIM COMMANDS                                           *dyadic-commands*
+9. NEOVIM COMMANDS                                           *dyadic-commands*
 
                                                                      *:Dyadic*
-:Dyadic [new]           Open another conversation and pi process.
-:Dyadic show            Show the current or most recent conversation.
-:Dyadic sessions        Choose among live conversations.
-:Dyadic input           Focus the current conversation's draft.
+:Dyadic                 Show the last agent, or open one, with the
+                        configured placement, and focus its composer.
+:Dyadic new             Open another agent and pi process.
+:Dyadic toggle          Hide or show this tab's sidebar, or with the free
+                        placement, the last agent's windows in this tab.
+:Dyadic agents          Choose among live agents.
+:Dyadic composer        Focus the composer, opening it if needed.
 :Dyadic {action}        `submit`, `follow_up`, `dequeue`, `abort`, `close`.
 :Dyadic {command}       Any pi command name from |dyadic-pi-commands|, such
                         as `model` or `resume`, without touching the draft.
 
-`:Dyadic new` creates another buffer; `/new` changes the session inside an
+Commands act on the agent of the current buffer, or else the last one used.
+`:Dyadic new` opens another agent; `/new` changes the session inside an
 existing one.
 
 ==============================================================================
-8. LUA API                                                        *dyadic-api*
+10. LUA API                                                       *dyadic-api*
 >lua
     local dyadic = require("dyadic")
-    local session = dyadic.open()   -- open a conversation
-    dyadic.show(session)            -- show it with the configured layout
-    dyadic.get()                    -- conversation of the current buffer
-    dyadic.list()                   -- all live conversations
+    local agent = dyadic.open()     -- open an agent
+    dyadic.show(agent)              -- show it with the configured placement
+    dyadic.toggle()                 -- same as :Dyadic toggle
+    dyadic.get()                    -- agent of the current buffer
+    dyadic.list()                   -- all live agents
     dyadic.action("submit")         -- any action from |dyadic-mappings|
     dyadic.command("resume")        -- same as :Dyadic resume
 <
-Session fields and methods:
+Agent fields and methods:
 
-`session.buf`, `session.draft`  Transcript and draft buffers.
-`session:submit(mode)`          Submit the draft; `mode` is nil or
+`agent.history_buf`,
+`agent.composer_buf`          History and composer buffers.
+`agent:submit(mode)`          Submit the draft; `mode` is nil or
                               `"followUp"`.
-`session:get_draft()`,
-`session:set_draft(text)`       Read or replace draft text.
-`session:status()`              Table with `title`, `status`, `active`,
+`agent:get_draft()`,
+`agent:set_draft(text)`       Read or replace the draft.
+`agent:status()`              Table with `title`, `phase`, `active`,
                               `session_id`, `session_file`, `model`,
                               `thinking`, `context` (`tokens`, `window`,
                               `percent`), `tokens`, `cost`, and `extensions`
                               (status entry strings).
 
 ==============================================================================
-9. EDITOR FILES                                                 *dyadic-files*
+11. EDITOR FILES                                                *dyadic-files*
 
 pi changes files with its own tools. After a tool other than `read`, `grep`,
 `find`, or `ls` finishes, dyadic runs |:checktime| on every loaded,
@@ -280,7 +388,7 @@ pi reads files from disk, so save a buffer before asking about unsaved
 changes.
 
 ==============================================================================
-10. EXTENSIONS AND PROTOCOL LIMITS                         *dyadic-extensions*
+12. EXTENSIONS AND PROTOCOL LIMITS                         *dyadic-extensions*
 
 Extension UI requests use native equivalents:
 
@@ -289,11 +397,11 @@ Extension UI requests use native equivalents:
 - `editor`: a floating buffer. In Normal mode `g<CR>` accepts, `q` or <Esc>
   cancels. `<Plug>(DyadicEditorAccept)` and `<Plug>(DyadicEditorCancel)` are
   available there.
-- Notifications, keyed status entries, string-array widgets (shown above or
-  below the draft), titles, and editor text are applied.
+- Notifications, keyed status entries (in the footer), string-array widgets
+  (above or below the draft), titles, and editor text are applied.
 
-Dialogs are shown one at a time. RPC timeouts and closing a conversation
-cancel pending dialogs, and a late answer never sends a second response.
+Dialogs are shown one at a time. RPC timeouts and closing an agent cancel
+pending dialogs, and a late answer never sends a second response.
 
 dyadic currently uses only stock RPC. JSONL export, deleting or renaming
 saved sessions in the picker, custom extension renderers, terminal images,
@@ -301,18 +409,29 @@ custom editor components, and terminal theme controls are not available.
 Images in messages are shown as text placeholders.
 
 ==============================================================================
-11. HIGHLIGHTS                                             *dyadic-highlights*
+13. HIGHLIGHTS                                             *dyadic-highlights*
 
 All are defined with `default = true`, so colorschemes and your config can
 override them.
 
-  DyadicTitle      Title row                  (links to |hl-Title|)
-  DyadicRole       Speaker rows               (links to |hl-Title|)
-  DyadicMeta       Secondary row text         (links to Comment)
-  DyadicActivity   Activity and summary rows  (links to Comment)
-  DyadicTool       Tool names                 (links to Special)
-  DyadicRunning    Running tools              (links to DiagnosticWarn)
-  DyadicError      Errors and aborts          (links to DiagnosticError)
-  DyadicQueue      Queued input               (links to DiagnosticInfo)
+  Group                   Used for                      Links to ~
+  DyadicTitle             Session title in the winbar   Title
+  DyadicSpeakerUser       You rows                      Identifier
+  DyadicSpeakerAssistant  Assistant rows                Title
+  DyadicSpeaker           Other speaker rows            Title
+  DyadicMeta              Secondary text                Comment
+  DyadicGroupBar          Bars of groups                DiagnosticHint
+  DyadicActivity          Group and activity text       Comment
+  DyadicTool              Tool names, shell prompt      Special
+  DyadicRunning           Running tools                 DiagnosticWarn
+  DyadicError             Errors, aborts, full context  DiagnosticError
+  DyadicShellBar          Bars of shell commands        Comment
+  DyadicCompaction        Compaction marks              Special
+  DyadicBranch            Branch summary marks          DiagnosticWarn
+  DyadicQueue             Queued messages and counts    DiagnosticInfo
+  DyadicSpinner           The composer's spinner        DiagnosticInfo
+  DyadicPhase             The agent's phase             Comment
+  DyadicFooter            The footer                    Comment
+  DyadicWarn              Context use above 70%         DiagnosticWarn
 
  vim:tw=78:ts=8:ft=help:norl:
