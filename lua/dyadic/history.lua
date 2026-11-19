@@ -18,6 +18,8 @@ function M.messages(entries, leaf_id)
       boundary = i
     end
   end
+  -- Like pi's context: the latest compaction's summary, then the entries it kept, then the rest.
+  local order = {}
   if boundary then
     local first = branch[boundary].firstKeptEntryId
     kept = boundary
@@ -27,11 +29,20 @@ function M.messages(entries, leaf_id)
         break
       end
     end
+    order[1] = boundary
+    for i = kept, boundary - 1 do
+      order[#order + 1] = i
+    end
+    for i = boundary + 1, #branch do
+      order[#order + 1] = i
+    end
   else
-    kept = 1
+    for i = 1, #branch do
+      order[i] = i
+    end
   end
   local messages = {}
-  for i = kept, #branch do
+  for _, i in ipairs(order) do
     local entry = branch[i]
     local message
     if entry.type == "message" and type(entry.message) == "table" then
