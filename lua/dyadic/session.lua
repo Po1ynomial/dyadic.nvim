@@ -1,6 +1,7 @@
 local View = require("dyadic.view")
 local Commands = require("dyadic.commands")
 local History = require("dyadic.history")
+local ExtensionUI = require("dyadic.extension_ui")
 local Session = {}
 Session.__index = Session
 
@@ -56,7 +57,7 @@ function Session.new(id, config, on_close)
       for _, tool in pairs(self.tools) do
         tool.running = false
       end
-      View.dispose_dialogs(self)
+      ExtensionUI.dispose_dialogs(self)
       if code == 0 and signal == 0 then
         self:notice("Pi exited")
       else
@@ -203,7 +204,7 @@ function Session:refresh(callback)
       self.queue = { steering = {}, followUp = {} }
       self.compaction_queue = {}
       self.queue_flush_version = self.queue_flush_version + 1
-      View.dispose_dialogs(self)
+      ExtensionUI.dispose_dialogs(self)
     end
     self.state = state
     self.active = state.isStreaming == true or state.isCompacting == true
@@ -414,7 +415,7 @@ end
 function Session:event(record)
   local kind = record.type
   if kind == "extension_ui_request" then
-    View.extension(self, record)
+    ExtensionUI.handle(self, record)
     return
   end
   if kind == "agent_start" then
