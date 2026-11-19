@@ -207,12 +207,10 @@ function Client:_finish()
   close_handle(self._stdout_pipe)
   close_handle(self._stderr_pipe)
   self._writes = {}
+  -- An unexpected exit is reported once, through on_exit; pending requests still fail.
   local message = self._failure
     or (self._closing and "Pi RPC client closed")
     or ("Pi RPC process exited unexpectedly (code " .. self._exit.code .. ", signal " .. self._exit.signal .. ")")
-  if not self._closing and not self._failure then
-    self:_invoke(self._opts.on_error, message)
-  end
   self:_fail_pending(message)
   self._ids = {}
   self:_invoke(self._opts.on_exit, self._exit.code, self._exit.signal)

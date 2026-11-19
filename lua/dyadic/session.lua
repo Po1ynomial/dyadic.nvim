@@ -14,7 +14,6 @@ function Session.new(id, config, on_close)
     stats = {},
     messages = {},
     tools = {},
-    notices = {},
     commands = {},
     queue = { steering = {}, followUp = {} },
     widgets = {},
@@ -45,19 +44,25 @@ function Session.new(id, config, on_close)
       self:notice(text, "error")
     end,
     on_stderr = function(text)
-      self:notice(text, "diagnostic")
+      self:log(text)
     end,
     on_exit = function(code, signal)
       if self.closed then
         return
       end
       self.active, self.partial = false, nil
-      self.status = "Pi exited"
+      self.status = code == 0 and signal == 0 and "Pi exited" or string.format("Pi exited (code %s)", code)
       for _, tool in pairs(self.tools) do
         tool.running = false
       end
       View.dispose_dialogs(self)
-      self:notice(string.format("Pi exited with code %s, signal %s", code, signal), code == 0 and "info" or "error")
+      if code == 0 and signal == 0 then
+        self:notice("Pi exited")
+      else
+        local where = self.log_path and "; stderr log: " .. self.log_path or ""
+        self:notice(string.format("Pi exited with code %s, signal %s%s", code, signal, where), "error")
+      end
+      self:render()
     end,
   })
   self.rpc = rpc
@@ -83,7 +88,8 @@ function Session:request(kind, fields, callback)
     if self.closed then
       return
     end
-    if err then
+    -- After an exit, on_exit reports once; don't repeat it for every pending request.
+    if err and not self.rpc._exit then
       self:notice(err, "error")
     end
     if callback then
@@ -112,12 +118,29 @@ function Session:render()
   end, 25)
 end
 
+local levels = {
+  error = vim.log.levels.ERROR,
+  warning = vim.log.levels.WARN,
+  warn = vim.log.levels.WARN,
+}
+
 function Session:notice(text, level)
   if self.closed or not text or text == "" then
     return
   end
-  self.notices[#self.notices + 1] = { text = tostring(text), level = level or "info" }
-  self:render()
+  vim.notify("Dyadic: " .. tostring(text), levels[level] or vim.log.levels.INFO)
+end
+
+-- Pi diagnostics are rarely needed; keep them in a temporary file instead of notifications.
+function Session:log(text)
+  if not self.log_path then
+    self.log_path = vim.fn.tempname() .. "-dyadic-" .. self.id .. ".log"
+  end
+  local fd = vim.uv.fs_open(self.log_path, "a", 420)
+  if fd then
+    vim.uv.fs_write(fd, text)
+    vim.uv.fs_close(fd)
+  end
 end
 
 function Session:get_draft()
@@ -167,8 +190,6 @@ function Session:refresh(callback)
       self.queue = { steering = {}, followUp = {} }
       self.compaction_queue = {}
       self.queue_flush_version = self.queue_flush_version + 1
-      -- Extension UI records may precede the switch response. Keep their latest values.
-      self.notices = {}
       View.dispose_dialogs(self)
     end
     self.state = state
@@ -245,9 +266,6 @@ function Session:submit(mode)
     -- A user may continue editing while pi accepts input. Never erase those edits.
     if self:get_draft() == text then
       self:set_draft("")
-    end
-    if data and data.disposition == "queued" then
-      self:notice("Input queued as " .. (mode or "steer"))
     end
     if data and data.disposition == "handled" then
       self:refresh()

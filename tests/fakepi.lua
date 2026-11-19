@@ -117,6 +117,10 @@ for line in io.stdin:lines() do
       queue = req.queue
     end
     ok(req, {})
+  elseif t == "test_crash" then
+    io.stderr:write("fake stack trace\n")
+    io.stderr:flush()
+    os.exit(3)
   elseif t == "extension_ui_response" then
     -- Dialog responses have no command response.
   else

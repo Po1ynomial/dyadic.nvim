@@ -15,6 +15,12 @@ function H.new_child()
   function child.setup()
     child.restart({ "-u", H.root .. "/tests/minimal_init.lua" })
     child.o.lines, child.o.columns = 24, 80
+    child.lua([[
+      _G.notes = {}
+      vim.notify = function(msg, level)
+        table.insert(_G.notes, { msg = msg, level = level })
+      end
+    ]])
   end
 
   -- Configure dyadic to use the fake pi and open one conversation as _G.S.

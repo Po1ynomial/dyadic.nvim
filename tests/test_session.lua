@@ -40,6 +40,28 @@ T["status resyncs after a compaction pi started itself"] = function()
   child.wait("_G.S.status == 'Idle' and not _G.S.active")
 end
 
+T["notices go through vim.notify, not the transcript"] = function()
+  child.open()
+  child.lua("_G.S:set_draft('/session'); _G.S:submit()")
+  child.wait("#_G.notes > 0")
+  eq(child.lua_get("_G.notes[1].msg"):match("^Dyadic: Session: ") ~= nil, true)
+  local text = table.concat(child.transcript(), "\n")
+  eq(text:find("Session:", 1, true), nil)
+end
+
+T["a crash notifies once with the stderr log path"] = function()
+  child.open()
+  child.lua([[_G.S:request("test_crash", {}); _G.S:request("get_state", {})]])
+  child.wait("_G.S.status:match('^Pi exited') ~= nil")
+  child.settle()
+  local notes = child.lua_get("_G.notes")
+  eq(#notes, 1)
+  local path = notes[1].msg:match("stderr log: (.+)$")
+  eq(path ~= nil, true)
+  eq(vim.fn.readfile(path), { "fake stack trace" })
+  eq(child.lua_get("_G.S.status"), "Pi exited (code 3)")
+end
+
 T["closing ends the pi process"] = function()
   child.open()
   local pid = child.lua_get("_G.S.rpc.pid")

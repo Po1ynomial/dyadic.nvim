@@ -625,12 +625,6 @@ function M.render(s)
       append("")
     end
   end
-  for _, notice in ipairs(s.notices or {}) do
-    heading(
-      "[" .. one_line(notice.level or "info") .. "] " .. clean(notice.text),
-      notice.level == "error" and "DiagnosticError" or "Comment"
-    )
-  end
   append("")
   local status = footer(s)
   local old_count = api.nvim_buf_line_count(s.buf)
