@@ -35,10 +35,7 @@ function H.new_child()
 
   -- Wait inside the child, where libuv callbacks for the fake pi run.
   function child.wait(condition, timeout)
-    local ok = child.lua(
-      "return vim.wait(...,  function() return " .. condition .. " end, 10)",
-      { timeout or 3000 }
-    )
+    local ok = child.lua("return vim.wait(...,  function() return " .. condition .. " end, 10)", { timeout or 3000 })
     if not ok then
       error("Timed out waiting for: " .. condition, 2)
     end
