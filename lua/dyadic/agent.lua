@@ -2,6 +2,7 @@ local View = require("dyadic.view")
 local Commands = require("dyadic.commands")
 local Entries = require("dyadic.entries")
 local ExtensionUI = require("dyadic.extension_ui")
+local QuitGuard = require("dyadic.quit_guard")
 local Agent = {}
 Agent.__index = Agent
 
@@ -126,6 +127,7 @@ function Agent:request(kind, fields, callback)
 end
 
 function Agent:render()
+  QuitGuard.update()
   if self.closed or self.render_pending then
     return
   end
@@ -582,6 +584,7 @@ function Agent:close(keep_buffer)
   if self.on_close then
     self.on_close(self)
   end
+  QuitGuard.update()
   if not keep_buffer and vim.api.nvim_buf_is_valid(self.history_buf) then
     pcall(vim.api.nvim_buf_delete, self.history_buf, { force = true })
   end

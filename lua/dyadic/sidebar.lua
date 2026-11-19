@@ -259,18 +259,9 @@ function M.entered(win)
   end
 end
 
-local function modified_buffers()
-  for _, info in ipairs(vim.fn.getbufinfo({ bufmodified = 1 })) do
-    local buftype = vim.bo[info.bufnr].buftype
-    if buftype == "" or buftype == "acwrite" then
-      return true
-    end
-  end
-  return false
-end
-
 -- :q on the last window outside the sidebar closes the sidebar first, so the tab closes or
--- Neovim exits as it would without it. Kept when quitting Neovim would be refused anyway.
+-- Neovim exits as it would without it. When quitting Neovim is refused, the sidebar comes
+-- back.
 function M.quit_pre()
   local current = api.nvim_get_current_win()
   local tab = api.nvim_get_current_tabpage()
@@ -283,15 +274,29 @@ function M.quit_pre()
       return
     end
   end
-  if #api.nvim_list_tabpages() == 1 and modified_buffers() then
-    return
-  end
+  local refused = #api.nvim_list_tabpages() == 1 and require("dyadic.quit_guard").blocks_exit()
+  local Composer = require("dyadic.composer")
   local agent = require("dyadic.view").agent_of(api.nvim_win_get_buf(state.win))
-  if agent and require("dyadic.composer").anchor(agent) == state.win then
-    require("dyadic.composer").close(agent)
+  local had_composer = agent and Composer.anchor(agent) == state.win
+  if had_composer then
+    Composer.close(agent)
   end
   pcall(api.nvim_win_close, state.win, true)
   sidebars[tab] = nil
+  if refused and agent then
+    -- Scheduled work runs only if Neovim is still here.
+    vim.schedule(function()
+      if agent.closed or not api.nvim_tabpage_is_valid(tab) or tab ~= api.nvim_get_current_tabpage() then
+        return
+      end
+      local back = api.nvim_get_current_win()
+      local win = M.show(agent)
+      if had_composer then
+        Composer.attach(agent, win, false)
+      end
+      api.nvim_set_current_win(back)
+    end)
+  end
 end
 
 return M

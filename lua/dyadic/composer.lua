@@ -302,9 +302,11 @@ function M.dispose(agent)
 end
 
 -- `:q` on a history window whose only neighbour is its composer: close the composer first,
--- so the quit behaves as if the history were alone.
+-- so the quit behaves as if the history were alone. When quitting Neovim is refused, the
+-- composer comes back.
 local function quit_pre()
   local current = api.nvim_get_current_win()
+  local refused = #api.nvim_list_tabpages() == 1 and require("dyadic.quit_guard").blocks_exit()
   for agent, state in pairs(attached) do
     if state.anchor == current and valid_win(state.win) then
       local others = vim.tbl_filter(function(win)
@@ -313,9 +315,28 @@ local function quit_pre()
       if #others == 0 then
         attached[agent] = nil
         pcall(api.nvim_win_close, state.win, true)
+        if refused then
+          vim.schedule(function()
+            if not agent.closed and valid_win(current) and api.nvim_win_get_buf(current) == agent.history_buf then
+              M.attach(agent, current, false)
+            end
+          end)
+        end
       end
     end
   end
+end
+
+-- Windows that would stay open after `:q` in the current window.
+local function remaining()
+  local current = api.nvim_get_current_win()
+  local count = 0
+  for _, win in ipairs(tiled(0)) do
+    if win ~= current and not pair_member(win) and not sidebar().contains(win) then
+      count = count + 1
+    end
+  end
+  return count
 end
 
 local group = api.nvim_create_augroup("DyadicComposer", { clear = true })
@@ -344,6 +365,7 @@ api.nvim_create_autocmd({ "WinClosed", "WinResized", "VimResized", "TabEnter", "
 api.nvim_create_autocmd("QuitPre", {
   group = group,
   callback = function()
+    require("dyadic.quit_guard").explain(remaining())
     sidebar().quit_pre()
     quit_pre()
   end,
