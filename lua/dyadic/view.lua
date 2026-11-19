@@ -607,8 +607,25 @@ statuslines = function(agent)
   spin(agent)
 end
 
--- Write only the changed line range, then re-apply overlay rows.
-local function write(agent, model)
+local function set_row(buf, row)
+  api.nvim_buf_set_extmark(buf, rows_ns, row.line, 0, {
+    virt_text = row.chunks,
+    virt_text_pos = "overlay",
+    hl_mode = "combine",
+  })
+  if row.right then
+    api.nvim_buf_set_extmark(buf, rows_ns, row.line, 0, {
+      virt_text = row.right,
+      virt_text_pos = "right_align",
+      hl_mode = "combine",
+    })
+  end
+end
+
+-- Write only the changed line range, then re-apply the overlay rows from the first one that
+-- changed. Rows of cached runs keep their chunk tables, so unchanged rows are found by
+-- identity.
+local function write(agent, model, previous)
   local buf = agent.history_buf
   local lines = model.lines
   local old_count = api.nvim_buf_line_count(buf)
@@ -621,7 +638,11 @@ local function write(agent, model)
       end)
     end
   end
-  local old_lines = api.nvim_buf_get_lines(buf, 0, -1, false)
+  -- The buffer is written only here, so the last written lines are its content.
+  local old_lines = agent._view.lines
+  if not old_lines or #old_lines ~= old_count then
+    old_lines = api.nvim_buf_get_lines(buf, 0, -1, false)
+  end
   local first = 1
   while first <= #old_lines and first <= #lines and old_lines[first] == lines[first] do
     first = first + 1
@@ -636,21 +657,31 @@ local function write(agent, model)
     vim.bo[buf].modifiable = false
     vim.bo[buf].modified = false
   end
-  api.nvim_buf_clear_namespace(buf, rows_ns, 0, -1)
+  agent._view.lines = lines
+  -- Rows before the first changed line or row keep their extmarks.
+  local changed = first - 1
+  local old_rows = previous and previous.rows or {}
+  local index = 1
+  while index <= #model.rows and index <= #old_rows do
+    local new, old = model.rows[index], old_rows[index]
+    if new.line ~= old.line or new.line >= changed or new.chunks ~= old.chunks or new.right ~= old.right then
+      break
+    end
+    index = index + 1
+  end
+  local from = changed
+  if model.rows[index] then
+    from = math.min(from, model.rows[index].line)
+  end
+  if old_rows[index] then
+    from = math.min(from, old_rows[index].line)
+  end
+  api.nvim_buf_clear_namespace(buf, rows_ns, from, -1)
   local by_line = {}
-  for _, row in ipairs(model.rows) do
+  for position, row in ipairs(model.rows) do
     by_line[row.line] = row
-    api.nvim_buf_set_extmark(buf, rows_ns, row.line, 0, {
-      virt_text = row.chunks,
-      virt_text_pos = "overlay",
-      hl_mode = "combine",
-    })
-    if row.right then
-      api.nvim_buf_set_extmark(buf, rows_ns, row.line, 0, {
-        virt_text = row.right,
-        virt_text_pos = "right_align",
-        hl_mode = "combine",
-      })
+    if position >= index then
+      set_row(buf, row)
     end
   end
   agent._view.rows_by_line = by_line
@@ -685,8 +716,9 @@ function M.render(agent, opts)
   end
   agent._view.stale = false
   local model = History.build(agent, opts)
+  local previous = agent._view.model
   agent._view.model = model
-  write(agent, model)
+  write(agent, model, previous)
   statuslines(agent)
   Detail.refresh(agent)
 end

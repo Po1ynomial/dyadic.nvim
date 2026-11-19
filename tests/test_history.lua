@@ -290,6 +290,56 @@ T("the cached render matches a fresh one", function()
   eq(snapshot(true), snapshot(false))
 end)
 
+-- What the buffer shows: its overlay extmarks, in the shape of H.rows.
+local function drawn(agent)
+  local ns = vim.api.nvim_get_namespaces().dyadic_history
+  local by_line = {}
+  for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(agent.history_buf, ns, 0, -1, { details = true })) do
+    local entry = by_line[mark[2] + 1] or { line = mark[2] + 1 }
+    by_line[mark[2] + 1] = entry
+    local text = table.concat(vim.tbl_map(function(chunk)
+      return chunk[1]
+    end, mark[4].virt_text))
+    if mark[4].virt_text_pos == "right_align" then
+      entry.right = text
+    else
+      ok(entry.text == nil, "two overlays on line " .. entry.line)
+      entry.text = text
+    end
+  end
+  local out = {}
+  for _, line in ipairs(vim.tbl_keys(by_line)) do
+    out[#out + 1] = by_line[line]
+  end
+  table.sort(out, function(a, b)
+    return a.line < b.line
+  end)
+  return out
+end
+
+T("incremental writes keep the drawn rows equal to the model", function()
+  local agent = open_finished()
+  eq(drawn(agent), H.rows(agent))
+  start_bash_run(agent)
+  eq(drawn(agent), H.rows(agent))
+  H.emit(agent, {
+    { type = "message_update", assistantMessageEvent = { type = "text_start", contentIndex = 1 } },
+    { type = "message_update", assistantMessageEvent = { type = "text_delta", contentIndex = 1, delta = "a\nb" } },
+  })
+  H.settle()
+  eq(drawn(agent), H.rows(agent))
+  -- Expanding a group in the first run moves every later row.
+  H.cursor_to_row(agent, "2 tools")
+  H.keys("za")
+  eq(drawn(agent), H.rows(agent))
+  H.emit(agent, { { type = "queue_update", steering = { "more" }, followUp = {} } })
+  H.settle()
+  eq(drawn(agent), H.rows(agent))
+  H.cursor_to_row(agent, "2 tools")
+  H.keys("za")
+  eq(drawn(agent), H.rows(agent))
+end)
+
 T("output follows only while the cursor is on the last line", function()
   local agent = open_finished()
   local win = H.history_win(agent)
