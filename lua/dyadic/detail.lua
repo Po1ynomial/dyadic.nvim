@@ -1,6 +1,7 @@
--- Scratch buffers showing one history item in full: a tool call, thinking block, shell
--- command, summary, or error. Each item gets its own buffer, which keeps updating while it
--- is visible and is wiped when hidden.
+-- The detail: one activity, or a shell command, summary, or error, in full in a float over
+-- most of the editor. Each item gets its own buffer, which keeps updating while shown and
+-- is wiped when hidden. The first header line is the float's title; the rest are virtual
+-- lines above the content.
 local M = {}
 local api = vim.api
 local text = require("dyadic.text")
@@ -28,7 +29,7 @@ local function tool_content(item)
   local status = History.tool_status(item)
   local header = { (item.name or "tool") .. " · " .. status }
   if live.durationMs then
-    header[1] = header[1] .. string.format(" · %dms", live.durationMs)
+    header[1] = header[1] .. " · " .. History.duration(live.durationMs)
   end
   local output = output_of(result)
   local details = type(result) == "table" and result.details or nil
@@ -103,6 +104,24 @@ local function visible(buf)
   return #vim.fn.win_findbuf(buf) > 0
 end
 
+-- Float geometry: about 90% of the editor, centred.
+local function geometry()
+  local columns, lines = vim.o.columns, vim.o.lines - vim.o.cmdheight
+  local width = math.max(1, math.floor(columns * 0.9) - 2)
+  local height = math.max(1, math.floor(lines * 0.9) - 2)
+  return {
+    relative = "editor",
+    width = width,
+    height = height,
+    row = math.floor((lines - height - 2) / 2),
+    col = math.floor((columns - width - 2) / 2),
+  }
+end
+
+local function title_of(content)
+  return " " .. text.one_line((content.header or {})[1] or "Detail") .. " "
+end
+
 local function update(agent, key, buf)
   local item = agent._view.model and agent._view.model.items[key]
   if not item then
@@ -115,22 +134,38 @@ local function update(agent, key, buf)
   if vim.bo[buf].filetype ~= content.filetype then
     vim.bo[buf].filetype = content.filetype
   end
+  local win = vim.fn.win_findbuf(buf)[1]
+  -- Like the history, follow new output while the cursor is on the last line.
+  local follow = win and api.nvim_win_get_cursor(win)[1] >= api.nvim_buf_line_count(buf)
   local old = api.nvim_buf_get_lines(buf, 0, -1, false)
   if not vim.deep_equal(old, content.lines) then
     vim.bo[buf].modifiable = true
     api.nvim_buf_set_lines(buf, 0, -1, false, content.lines)
     vim.bo[buf].modifiable = false
     vim.bo[buf].modified = false
+    if follow and #old > 1 then
+      api.nvim_win_set_cursor(win, { #content.lines, 0 })
+    end
   end
   api.nvim_buf_clear_namespace(buf, header_ns, 0, -1)
   local virt = {}
-  for _, line in ipairs(content.header or {}) do
-    virt[#virt + 1] = { { text.one_line(line), "DyadicRole" } }
+  for index, line in ipairs(content.header or {}) do
+    if index > 1 then
+      virt[#virt + 1] = { { text.one_line(line), "DyadicMeta" } }
+    end
   end
   if #virt > 0 then
     api.nvim_buf_set_extmark(buf, header_ns, 0, 0, { virt_lines = virt, virt_lines_above = true })
   end
-  return #virt
+  if win and api.nvim_win_get_config(win).relative ~= "" then
+    local title = title_of(content)
+    local config = api.nvim_win_get_config(win)
+    local current = type(config.title) == "table" and (config.title[1] or {})[1] or config.title
+    if current ~= title then
+      api.nvim_win_set_config(win, { title = title, title_pos = "left" })
+    end
+  end
+  return #virt, content
 end
 
 -- Refresh every visible detail buffer of an agent.
@@ -151,6 +186,27 @@ function M.any_visible(agent)
   return false
 end
 
+local function close(win)
+  if win and api.nvim_win_is_valid(win) then
+    pcall(api.nvim_win_close, win, true)
+  end
+end
+
+local function bind(agent, buf)
+  local function close_current()
+    close(api.nvim_get_current_win())
+  end
+  for _, key in ipairs({ "q", "<Esc>", "K" }) do
+    vim.keymap.set("n", key, close_current, { buffer = buf, silent = true, desc = "Dyadic close detail" })
+  end
+  -- Files open in the main area; paths are relative to pi's working directory.
+  for key, how in pairs({ gf = "edit", gF = "gF", ["<C-w>f"] = "split" }) do
+    vim.keymap.set("n", key, function()
+      require("dyadic.sidebar").open_file(agent, how, close_current)
+    end, { buffer = buf, silent = true, desc = "Dyadic open file in the main area" })
+  end
+end
+
 function M.open(agent, key)
   local item = agent._view.model and agent._view.model.items[key]
   if not item or not M.content(item) then
@@ -166,7 +222,7 @@ function M.open(agent, key)
     vim.bo[buf].undolevels = -1
     vim.bo[buf].modifiable = false
     api.nvim_buf_set_name(buf, "dyadic://" .. agent.id .. "/detail/" .. key:gsub("[^%w%-_.:]", "_"))
-    vim.keymap.set("n", "q", "<Cmd>close<CR>", { buffer = buf, silent = true, desc = "Dyadic close details" })
+    bind(agent, buf)
     api.nvim_create_autocmd("BufWipeout", {
       buffer = buf,
       once = true,
@@ -177,18 +233,52 @@ function M.open(agent, key)
       end,
     })
   end
-  local header = update(agent, key, buf) or 0
+  local header, content = update(agent, key, buf)
   local win = vim.fn.win_findbuf(buf)[1]
   if win then
     api.nvim_set_current_win(win)
-  else
-    win = api.nvim_open_win(buf, true, { split = "below", win = 0 })
-    vim.wo[win].wrap = true
-    vim.wo[win].number = false
-    vim.wo[win].relativenumber = false
-    -- Virtual lines above line 1 show only with filler rows at the top of the view.
-    vim.fn.winrestview({ topline = 1, topfill = header })
+    return true
   end
+  local config = geometry()
+  config.border = "rounded"
+  config.style = "minimal"
+  config.title = title_of(content)
+  config.title_pos = "left"
+  win = api.nvim_open_win(buf, true, config)
+  vim.wo[win].wrap = true
+  vim.wo[win].linebreak = true
+  -- Virtual lines above line 1 show only with filler rows at the top of the view.
+  vim.fn.winrestview({ topline = 1, topfill = header })
+  -- One detail at a time: leaving the float closes it.
+  local group = api.nvim_create_augroup("DyadicDetail" .. win, { clear = true })
+  api.nvim_create_autocmd("WinLeave", {
+    group = group,
+    callback = function()
+      if api.nvim_get_current_win() == win then
+        vim.schedule(function()
+          close(win)
+        end)
+      end
+    end,
+  })
+  api.nvim_create_autocmd("VimResized", {
+    group = group,
+    callback = function()
+      if api.nvim_win_is_valid(win) then
+        api.nvim_win_set_config(win, geometry())
+      end
+    end,
+  })
+  api.nvim_create_autocmd("WinClosed", {
+    group = group,
+    pattern = tostring(win),
+    once = true,
+    callback = function()
+      vim.schedule(function()
+        pcall(api.nvim_del_augroup_by_id, group)
+      end)
+    end,
+  })
   return true
 end
 

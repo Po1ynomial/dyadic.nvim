@@ -44,6 +44,7 @@ local function pair_member(win)
   end
   return false
 end
+M.pair_member = pair_member
 
 function M.window(agent)
   local state = attached[agent]

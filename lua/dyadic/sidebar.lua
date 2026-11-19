@@ -137,28 +137,37 @@ function M.close(tab)
   return true
 end
 
--- The main area's window: the one last used outside the sidebar, else a new split.
+-- Windows that belong to dyadic: the sidebar, or a history window with its composer.
+local function dyadic_window(win)
+  return M.contains(win) or require("dyadic.composer").pair_member(win)
+end
+
+-- The main area's window: the one last used outside the sidebar and any history/composer
+-- pair, else another such window, else a new split.
 function M.main_window(tab)
   tab = tab or api.nvim_get_current_tabpage()
   local win = main[tab]
-  if valid_win(win) and api.nvim_win_get_tabpage(win) == tab and not M.contains(win) then
+  if valid_win(win) and api.nvim_win_get_tabpage(win) == tab and not dyadic_window(win) then
     return win
   end
   for _, candidate in ipairs(api.nvim_tabpage_list_wins(tab)) do
-    if not is_float(candidate) and not M.contains(candidate) then
+    if not is_float(candidate) and not dyadic_window(candidate) then
       return candidate
     end
   end
   local state = state_of(tab)
-  local side = state and api.nvim_win_get_position(state.win)[2] == 0 and "right" or "left"
-  win = api.nvim_open_win(api.nvim_create_buf(true, false), false, { split = side, win = -1 })
+  local config = { split = "above", win = -1 }
+  if state then
+    config.split = api.nvim_win_get_position(state.win)[2] == 0 and "right" or "left"
+  end
+  win = api.nvim_open_win(api.nvim_create_buf(true, false), false, config)
   main[tab] = win
   return win
 end
 
--- gf, gF, and <C-w>f in the sidebar open in the main area. Paths in tool output are
--- relative to pi's working directory.
-function M.open_file(agent, how)
+-- gf, gF, and <C-w>f in the sidebar or the detail open in the main area. Paths in tool
+-- output are relative to pi's working directory. `before` runs once the file is known.
+function M.open_file(agent, how, before)
   local name = vim.fn.expand("<cfile>")
   if name == "" then
     vim.notify("E446: No file name under cursor", vim.log.levels.ERROR)
@@ -173,6 +182,9 @@ function M.open_file(agent, how)
     return
   end
   local line = how == "gF" and tonumber(vim.fn.expand("<cWORD>"):match(vim.pesc(name) .. "[:(](%d+)")) or nil
+  if before then
+    before()
+  end
   local win = M.main_window()
   api.nvim_set_current_win(win)
   vim.cmd((how == "split" and "split " or "edit ") .. vim.fn.fnameescape(path))
@@ -254,7 +266,7 @@ end
 
 -- Track the main area's window.
 function M.entered(win)
-  if not is_float(win) and not M.contains(win) then
+  if not is_float(win) and not dyadic_window(win) then
     main[api.nvim_get_current_tabpage()] = win
   end
 end
