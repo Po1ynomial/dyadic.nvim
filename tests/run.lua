@@ -37,14 +37,14 @@ if args[1] == "--case" then
   end
   local case = load(args[2]).cases[tonumber(args[3])]
   local ok, err = xpcall(case.fn, debug.traceback)
-  -- Close conversations so fake pi processes exit before this Neovim does.
+  -- Close agents so fake pi processes exit before this Neovim does.
   pcall(function()
     local dyadic = require("dyadic")
-    local sessions = dyadic.list()
+    local agents = dyadic.list()
     dyadic.shutdown()
     vim.wait(2000, function()
-      for _, s in ipairs(sessions) do
-        if s.rpc and not s.rpc._finished then
+      for _, agent in ipairs(agents) do
+        if agent.rpc and not agent.rpc._finished then
           return false
         end
       end

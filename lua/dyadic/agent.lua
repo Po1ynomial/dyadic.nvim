@@ -1,11 +1,11 @@
 local View = require("dyadic.view")
 local Commands = require("dyadic.commands")
-local History = require("dyadic.history")
+local Entries = require("dyadic.entries")
 local ExtensionUI = require("dyadic.extension_ui")
-local Session = {}
-Session.__index = Session
+local Agent = {}
+Agent.__index = Agent
 
-function Session.new(id, config, on_close)
+function Agent.new(id, config, on_close)
   local self = setmetatable({
     id = id,
     config = config,
@@ -28,7 +28,7 @@ function Session.new(id, config, on_close)
     expanded = {},
     history_version = 0,
     refresh_version = 0,
-  }, Session)
+  }, Agent)
   View.new(self)
   local cmd = vim.deepcopy(config.cmd)
   vim.list_extend(cmd, { "--mode", "rpc" })
@@ -36,7 +36,7 @@ function Session.new(id, config, on_close)
   local rpc, err = require("dyadic.rpc").new({
     cmd = cmd,
     cwd = self.cwd,
-    env = Session.environment(),
+    env = Agent.environment(),
     on_record = function(record)
       if not self.closed then
         self:event(record)
@@ -79,7 +79,7 @@ end
 
 -- Neovim sets $NVIM only for jobstart()/terminal children, so an inherited value names an
 -- outer instance. Remove it so pi's tools cannot attach to the wrong Neovim.
-function Session.environment()
+function Agent.environment()
   local env = {}
   for name, value in pairs(vim.fn.environ()) do
     if name ~= "NVIM" and name ~= "NVIM_LISTEN_ADDRESS" then
@@ -89,9 +89,9 @@ function Session.environment()
   return env
 end
 
-function Session:request(kind, fields, callback)
+function Agent:request(kind, fields, callback)
   if self.closed or not self.rpc then
-    local err = self.closed and "Conversation is closed" or "Pi is not running"
+    local err = self.closed and "Agent is closed" or "Pi is not running"
     self:notice(err, "error")
     if callback then
       callback(err)
@@ -125,14 +125,14 @@ function Session:request(kind, fields, callback)
   return id, request_err
 end
 
-function Session:render()
+function Agent:render()
   if self.closed or self.render_pending then
     return
   end
   self.render_pending = true
   vim.defer_fn(function()
     self.render_pending = false
-    if not self.closed and vim.api.nvim_buf_is_valid(self.buf) then
+    if not self.closed and vim.api.nvim_buf_is_valid(self.history_buf) then
       View.render(self)
     end
   end, 25)
@@ -144,7 +144,7 @@ local levels = {
   warn = vim.log.levels.WARN,
 }
 
-function Session:notice(text, level)
+function Agent:notice(text, level)
   if self.closed or not text or text == "" then
     return
   end
@@ -152,7 +152,7 @@ function Session:notice(text, level)
 end
 
 -- Pi diagnostics are rarely needed; keep them in a temporary file instead of notifications.
-function Session:log(text)
+function Agent:log(text)
   if not self.log_path then
     self.log_path = vim.fn.tempname() .. "-dyadic-" .. self.id .. ".log"
   end
@@ -163,8 +163,8 @@ function Session:log(text)
   end
 end
 
--- Session status as data, for the transcript statusline and user statuslines.
-function Session:status()
+-- Agent status as data, for the history statusline and user statuslines.
+function Agent:status()
   local state, stats = self.state or {}, self.stats or {}
   local model = type(state.model) == "table" and state.model or {}
   local usage = type(stats.contextUsage) == "table" and stats.contextUsage or nil
@@ -179,7 +179,7 @@ function Session:status()
   end
   return {
     title = self.title or state.sessionName or "Dyadic",
-    status = self.phase or "Idle",
+    phase = self.phase or "Idle",
     active = self.active,
     session_id = state.sessionId,
     session_file = state.sessionFile,
@@ -196,18 +196,18 @@ function Session:status()
   }
 end
 
-function Session:get_draft()
+function Agent:get_draft()
   return View.get_draft(self)
 end
-function Session:set_draft(text)
+function Agent:set_draft(text)
   View.set_draft(self, text or "")
 end
 
-function Session:sync_history(callback)
+function Agent:sync_messages(callback)
   local version = self.history_version
   self:request("get_entries", {}, function(err, data)
     if not err and version == self.history_version then
-      self.messages = History.messages(data.entries or {}, data.leafId)
+      self.messages = Entries.messages(data.entries or {}, data.leafId)
       if not self.active then
         self.partial = nil
         self.tools = {}
@@ -220,7 +220,7 @@ function Session:sync_history(callback)
   end)
 end
 
-function Session:refresh(callback)
+function Agent:refresh(callback)
   self.refresh_version = self.refresh_version + 1
   local version = self.refresh_version
   self:request("get_state", {}, function(err, state)
@@ -249,7 +249,7 @@ function Session:refresh(callback)
     self.state = state
     self.active = state.isStreaming == true or state.isCompacting == true
     self.phase = state.isCompacting and "Compacting" or (self.active and "Working" or "Idle")
-    self:sync_history(function(history_err)
+    self:sync_messages(function(history_err)
       if version ~= self.refresh_version then
         return
       end
@@ -277,7 +277,7 @@ function Session:refresh(callback)
   end)
 end
 
-function Session:submit(mode)
+function Agent:submit(mode)
   local text = self:get_draft()
   if text:match("^%s*$") then
     return
@@ -327,7 +327,7 @@ function Session:submit(mode)
   end)
 end
 
-function Session:restore_queue(data)
+function Agent:restore_queue(data)
   local texts = {}
   local draft = self:get_draft()
   if draft ~= "" then
@@ -344,7 +344,7 @@ function Session:restore_queue(data)
   self:render()
 end
 
-function Session:dequeue()
+function Agent:dequeue()
   self.queue_flush_version = self.queue_flush_version + 1
   self:request("clear_queue", {}, function(err, data)
     if not err then
@@ -353,7 +353,7 @@ function Session:dequeue()
   end)
 end
 
-function Session:abort()
+function Agent:abort()
   if self.aborting then
     return
   end
@@ -373,7 +373,7 @@ function Session:abort()
   end)
 end
 
-function Session:flush_compaction_queue(will_retry)
+function Agent:flush_compaction_queue(will_retry)
   if self.aborting or #self.compaction_queue == 0 then
     return
   end
@@ -407,11 +407,11 @@ function Session:flush_compaction_queue(will_retry)
   send_next()
 end
 
-function Session:action(name)
-  if View.actions[name] and View.actions[name][3] == "transcript" then
+function Agent:action(name)
+  if View.actions[name] and View.actions[name][3] == "history" then
     View.action(self, name)
-  elseif name == "focus_draft" or name == "focus_transcript" then
-    View.focus(self, name == "focus_draft")
+  elseif name == "focus_composer" or name == "focus_history" then
+    View.focus(self, name == "focus_composer")
   elseif name == "cycle_thinking" or name == "cycle_model" then
     self:request(name == "cycle_model" and "cycle_model" or "cycle_thinking_level", {}, function(err)
       if not err then
@@ -428,7 +428,7 @@ local read_only_tools = { read = true, grep = true, find = true, ls = true }
 
 -- Reload buffers whose files the agent may have changed. Buffers with unsaved changes are
 -- skipped so no prompt interrupts typing; 'autoread' still decides whether reloading asks.
-function Session:check_files()
+function Agent:check_files()
   if self.checking_files then
     return
   end
@@ -448,7 +448,7 @@ function Session:check_files()
   end, 25)
 end
 
-function Session:event(record)
+function Agent:event(record)
   local kind = record.type
   if kind == "extension_ui_request" then
     ExtensionUI.handle(self, record)
@@ -565,12 +565,12 @@ function Session:event(record)
     self:notice(record.errorMessage or record.error or "Extension failed", "error")
   elseif kind == "entry_appended" and not self.active then
     self.history_version = self.history_version + 1
-    self:sync_history()
+    self:sync_messages()
   end
   self:render()
 end
 
-function Session:close(keep_buffer)
+function Agent:close(keep_buffer)
   if self.closed then
     return
   end
@@ -582,9 +582,9 @@ function Session:close(keep_buffer)
   if self.on_close then
     self.on_close(self)
   end
-  if not keep_buffer and vim.api.nvim_buf_is_valid(self.buf) then
-    pcall(vim.api.nvim_buf_delete, self.buf, { force = true })
+  if not keep_buffer and vim.api.nvim_buf_is_valid(self.history_buf) then
+    pcall(vim.api.nvim_buf_delete, self.history_buf, { force = true })
   end
 end
 
-return Session
+return Agent

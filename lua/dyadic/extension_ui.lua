@@ -16,14 +16,14 @@ local function valid_win(win)
   return win and api.nvim_win_is_valid(win)
 end
 
-local function respond(s, id, fields)
-  if not s.rpc then
+local function respond(agent, id, fields)
+  if not agent.rpc then
     return
   end
   fields.type, fields.id = "extension_ui_response", id
-  local ok, sent, err = pcall(s.rpc.send, s.rpc, fields)
-  if (not ok or not sent) and not s.closed then
-    s:notice("Extension response failed: " .. tostring(ok and err or sent), "error")
+  local ok, sent, err = pcall(agent.rpc.send, agent.rpc, fields)
+  if (not ok or not sent) and not agent.closed then
+    agent:notice("Extension response failed: " .. tostring(ok and err or sent), "error")
   end
 end
 
@@ -44,14 +44,14 @@ local function finish_dialog(dialog, fields)
     dialog.timer:close()
     dialog.timer = nil
   end
-  if dialog.s._view then
-    dialog.s._view.dialogs[dialog.id] = nil
-    dialog.s._view.seen_dialogs[dialog.id] = true
+  if dialog.agent._view then
+    dialog.agent._view.dialogs[dialog.id] = nil
+    dialog.agent._view.seen_dialogs[dialog.id] = true
   end
   if active_dialog == dialog then
     active_dialog = nil
   end
-  respond(dialog.s, dialog.id, fields or { cancelled = true })
+  respond(dialog.agent, dialog.id, fields or { cancelled = true })
   for _, win in ipairs(dialog.windows or {}) do
     if valid_win(win) then
       pcall(api.nvim_win_close, win, true)
@@ -125,7 +125,7 @@ pump_dialogs = function()
   if not dialog then
     return
   end
-  if dialog.s.closed or dialog.s._view.disposed then
+  if dialog.agent.closed or dialog.agent._view.disposed then
     finish_dialog(dialog)
     return
   end
@@ -178,8 +178,8 @@ pump_dialogs = function()
   if not ok then
     local completed = dialog.done
     finish_dialog(dialog)
-    if not completed and not dialog.s.closed then
-      dialog.s:notice("Extension dialog failed: " .. clean(err), "error")
+    if not completed and not dialog.agent.closed then
+      dialog.agent:notice("Extension dialog failed: " .. clean(err), "error")
     end
     return
   end
@@ -206,62 +206,62 @@ pump_dialogs = function()
   end
 end
 
-function M.handle(s, record)
-  if not s._view then
+function M.handle(agent, record)
+  if not agent._view then
     return
   end
   local method = record.method
   if method == "notify" then
-    s:notice(clean(record.message), record.notifyType or "info")
+    agent:notice(clean(record.message), record.notifyType or "info")
     return
   elseif method == "setStatus" then
     if record.statusKey then
-      s.statuses[record.statusKey] = record.statusText and clean(record.statusText) or nil
+      agent.statuses[record.statusKey] = record.statusText and clean(record.statusText) or nil
     end
-    s:render()
+    agent:render()
     return
   elseif method == "setWidget" then
     if record.widgetKey then
-      s.widgets[record.widgetKey] = type(record.widgetLines) == "table"
+      agent.widgets[record.widgetKey] = type(record.widgetLines) == "table"
           and {
             lines = record.widgetLines,
             placement = record.widgetPlacement or "aboveEditor",
           }
         or nil
     end
-    s:render()
+    agent:render()
     return
   elseif method == "setTitle" then
-    s.title = clean(record.title)
-    s:render()
+    agent.title = clean(record.title)
+    agent:render()
     return
   elseif method == "set_editor_text" then
-    require("dyadic.view").set_draft(s, record.text or "")
+    require("dyadic.view").set_draft(agent, record.text or "")
     return
   end
   if record.id == nil then
-    s:notice("Extension dialog has no request id", "error")
+    agent:notice("Extension dialog has no request id", "error")
     return
   end
-  if s._view.seen_dialogs[record.id] then
+  if agent._view.seen_dialogs[record.id] then
     return
   end
-  if s.closed or s._view.disposed then
-    respond(s, record.id, { cancelled = true })
+  if agent.closed or agent._view.disposed then
+    respond(agent, record.id, { cancelled = true })
     return
   end
   if not ({ select = true, confirm = true, input = true, editor = true })[method] then
-    s._view.seen_dialogs[record.id] = true
-    respond(s, record.id, { cancelled = true })
-    s:notice("Unsupported extension UI method: " .. one_line(method), "warning")
+    agent._view.seen_dialogs[record.id] = true
+    respond(agent, record.id, { cancelled = true })
+    agent:notice("Unsupported extension UI method: " .. one_line(method), "warning")
     return
   end
-  if s._view.dialogs[record.id] then
+  if agent._view.dialogs[record.id] then
     -- Repeated live IDs belong to the pending request.
     return
   end
-  local dialog = { s = s, id = record.id, record = record, windows = {}, done = false }
-  s._view.dialogs[record.id] = dialog
+  local dialog = { agent = agent, id = record.id, record = record, windows = {}, done = false }
+  agent._view.dialogs[record.id] = dialog
   dialog_queue[#dialog_queue + 1] = dialog
   local timeout = tonumber(record.timeout)
   if timeout then
@@ -277,12 +277,12 @@ function M.handle(s, record)
   vim.schedule(pump_dialogs)
 end
 
-function M.dispose_dialogs(s)
-  if not s._view then
+function M.dispose_dialogs(agent)
+  if not agent._view then
     return
   end
   local pending = {}
-  for _, dialog in pairs(s._view.dialogs) do
+  for _, dialog in pairs(agent._view.dialogs) do
     pending[#pending + 1] = dialog
   end
   for _, dialog in ipairs(pending) do

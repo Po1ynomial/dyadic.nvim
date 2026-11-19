@@ -10,46 +10,46 @@ end
 
 T("select is answered once through vim.ui.select", function()
   local log = vim.fn.tempname()
-  local s = H.open({ log = log })
+  local agent = H.open({ log = log })
   vim.ui.select = function(items, _, on_choice)
     on_choice(items[2])
   end
   local request =
     { type = "extension_ui_request", id = "d1", method = "select", title = "Pick", options = { "a", "b" } }
-  H.emit(s, { request, request })
+  H.emit(agent, { request, request })
   H.settle(150)
   eq(responses(log), { { type = "extension_ui_response", id = "d1", value = "b" } })
 end)
 
 T("confirm maps the answer to confirmed", function()
   local log = vim.fn.tempname()
-  local s = H.open({ log = log })
+  local agent = H.open({ log = log })
   vim.ui.select = function(_, _, on_choice)
     on_choice("No")
   end
-  H.emit(s, { { type = "extension_ui_request", id = "d2", method = "confirm", title = "Sure?", message = "x" } })
+  H.emit(agent, { { type = "extension_ui_request", id = "d2", method = "confirm", title = "Sure?", message = "x" } })
   H.settle(150)
   eq(responses(log), { { type = "extension_ui_response", id = "d2", confirmed = false } })
 end)
 
-T("closing the conversation cancels a pending dialog", function()
+T("closing the agent cancels a pending dialog", function()
   local log = vim.fn.tempname()
-  local s = H.open({ log = log })
+  local agent = H.open({ log = log })
   vim.ui.input = function() end
-  H.emit(s, { { type = "extension_ui_request", id = "d3", method = "input", title = "Name" } })
+  H.emit(agent, { { type = "extension_ui_request", id = "d3", method = "input", title = "Name" } })
   H.settle(150)
-  s:close()
+  agent:close()
   H.wait(function()
-    return s.rpc._finished == true
+    return agent.rpc._finished == true
   end)
   eq(responses(log), { { type = "extension_ui_response", id = "d3", cancelled = true } })
 end)
 
 T("set_editor_text replaces the draft", function()
-  local s = H.open()
-  H.emit(s, { { type = "extension_ui_request", id = "d4", method = "set_editor_text", text = "from extension" } })
+  local agent = H.open()
+  H.emit(agent, { { type = "extension_ui_request", id = "d4", method = "set_editor_text", text = "from extension" } })
   H.wait(function()
-    return s:get_draft() == "from extension"
+    return agent:get_draft() == "from extension"
   end)
 end)
 

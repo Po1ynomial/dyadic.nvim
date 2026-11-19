@@ -36,15 +36,15 @@ local function finished_run()
 end
 
 local function open_finished()
-  local s = H.open({ entries = finished_run() })
+  local agent = H.open({ entries = finished_run() })
   H.settle()
-  return s
+  return agent
 end
 
 T("finished runs collapse activity that text follows", function()
-  local s = open_finished()
+  local agent = open_finished()
   -- The buffer holds only message text; everything else is overlay rows on empty lines.
-  eq(H.transcript(s), {
+  eq(H.history(agent), {
     "",
     "",
     "",
@@ -60,7 +60,7 @@ T("finished runs collapse activity that text follows", function()
     "print(1)",
     "```",
   })
-  eq(H.rows(s), {
+  eq(H.rows(agent), {
     { line = 1, text = "── Dyadic · /work" },
     { line = 3, text = "── You" },
     { line = 6, text = "── Assistant · fake-model" },
@@ -70,14 +70,14 @@ T("finished runs collapse activity that text follows", function()
 end)
 
 T("za expands a group in place and K opens an item's details", function()
-  local s = open_finished()
-  H.cursor_to_row(s, "2 tools")
+  local agent = open_finished()
+  H.cursor_to_row(agent, "2 tools")
   H.keys("za")
-  eq(vim.list_slice(H.row_texts(s), 5), {
+  eq(vim.list_slice(H.row_texts(agent), 5), {
     "  ◦ read a.lua · done",
     "  ◦ bash rg 'foo*' -n · error",
   })
-  H.cursor_to_row(s, "read a.lua")
+  H.cursor_to_row(agent, "read a.lua")
   H.keys("K")
   eq(vim.bo.filetype, "lua")
   eq(H.current_lines(), { "local x = 1", "return x" })
@@ -87,23 +87,23 @@ T("za expands a group in place and K opens an item's details", function()
   H.keys("q")
   eq(vim.api.nvim_buf_is_valid(detail), false)
   -- za on an item row collapses its group again.
-  H.cursor_to_row(s, "bash rg")
+  H.cursor_to_row(agent, "bash rg")
   H.keys("za")
-  eq(H.row_texts(s)[5], "▸ 2 tools · 1 error")
+  eq(H.row_texts(agent)[5], "▸ 2 tools · 1 error")
 end)
 
 T("K on a collapsed summary expands it", function()
-  local s = open_finished()
-  H.cursor_to_row(s, "▸ thinking")
+  local agent = open_finished()
+  H.cursor_to_row(agent, "▸ thinking")
   H.keys("K")
-  eq(H.row_texts(s)[4], "  ◦ thinking · 2 lines")
+  eq(H.row_texts(agent)[4], "  ◦ thinking · 2 lines")
   H.keys("K")
   eq(vim.bo.filetype, "markdown")
   eq(H.current_lines(), { "The bug is *probably*", "in a.lua" })
 end)
 
-local function start_bash_run(s)
-  H.emit(s, {
+local function start_bash_run(agent)
+  H.emit(agent, {
     { type = "agent_start" },
     { type = "message_start", message = { role = "user", content = "go", timestamp = 10 } },
     { type = "message_end", message = { role = "user", content = "go", timestamp = 10 } },
@@ -126,46 +126,46 @@ local function start_bash_run(s)
 end
 
 T("the live run keeps trailing activity expanded until text follows", function()
-  local s = H.open()
-  start_bash_run(s)
-  eq(H.row_texts(s)[4], "  ◦ bash make test · running")
-  H.emit(s, {
+  local agent = H.open()
+  start_bash_run(agent)
+  eq(H.row_texts(agent)[4], "  ◦ bash make test · running")
+  H.emit(agent, {
     { type = "message_update", assistantMessageEvent = { type = "text_start", contentIndex = 1 } },
     { type = "message_update", assistantMessageEvent = { type = "text_delta", contentIndex = 1, delta = "Tests run" } },
   })
   H.settle()
-  eq(H.row_texts(s)[4], "▸ 1 tool · 1 running")
-  local lines = H.transcript(s)
+  eq(H.row_texts(agent)[4], "▸ 1 tool · 1 running")
+  local lines = H.history(agent)
   eq(lines[#lines], "Tests run")
 end)
 
 T("a visible detail buffer follows a running tool", function()
-  local s = H.open()
-  start_bash_run(s)
-  H.cursor_to_row(s, "bash make")
+  local agent = H.open()
+  start_bash_run(agent)
+  H.cursor_to_row(agent, "bash make")
   H.keys("K")
   eq(H.current_lines(), { "(no output)" })
   local partial = { content = { { type = "text", text = "step 1\nstep 2" } } }
-  H.emit(s, { { type = "tool_execution_update", toolCallId = "c1", toolName = "bash", partialResult = partial } })
+  H.emit(agent, { { type = "tool_execution_update", toolCallId = "c1", toolName = "bash", partialResult = partial } })
   H.settle()
   eq(H.current_lines(), { "step 1", "step 2" })
 end)
 
 T("a failed run keeps its trailing activity expanded", function()
-  local s = H.open()
+  local agent = H.open()
   local entries = H.chain({
     { role = "user", content = "go", timestamp = 10 },
     assistant(11, {
       { type = "toolCall", id = "c1", name = "bash", arguments = { command = "sleep 100" } },
     }, { stopReason = "aborted" }),
   })
-  H.request(s, "test_set", { entries = entries })
-  H.emit(s, { { type = "agent_start" }, { type = "agent_settled", aborted = true } })
+  H.request(agent, "test_set", { entries = entries })
+  H.emit(agent, { { type = "agent_start" }, { type = "agent_settled", aborted = true } })
   H.wait(function()
-    return s.run_failed == true and #s.messages == 2
+    return agent.run_failed == true and #agent.messages == 2
   end)
   H.settle()
-  eq(vim.list_slice(H.row_texts(s), 2), {
+  eq(vim.list_slice(H.row_texts(agent), 2), {
     "── You",
     "── Assistant · fake-model",
     "  ◦ bash sleep 100 · no result",
@@ -174,7 +174,7 @@ T("a failed run keeps its trailing activity expanded", function()
 end)
 
 T("saved history loads fully collapsed", function()
-  local s = H.open({
+  local agent = H.open({
     entries = H.chain({
       { role = "user", content = "go", timestamp = 10 },
       assistant(11, {
@@ -183,11 +183,11 @@ T("saved history loads fully collapsed", function()
     }),
   })
   H.settle()
-  eq(H.row_texts(s)[4], "▸ 1 tool")
+  eq(H.row_texts(agent)[4], "▸ 1 tool")
 end)
 
 T("shell commands, summaries, usage, errors, and queues are rows", function()
-  local s = H.open({
+  local agent = H.open({
     entries = H.chain({
       { role = "user", content = "old", timestamp = 1 },
       {
@@ -210,9 +210,9 @@ T("shell commands, summaries, usage, errors, and queues are rows", function()
     }),
   })
   H.settle()
-  H.emit(s, { { type = "queue_update", steering = { "also check b.lua" }, followUp = { "then summarize" } } })
+  H.emit(agent, { { type = "queue_update", steering = { "also check b.lua" }, followUp = { "then summarize" } } })
   H.settle()
-  eq(H.row_texts(s), {
+  eq(H.row_texts(agent), {
     "── Dyadic · /work",
     "▸ Context compacted · 1200 tokens before",
     "  usage · compaction: 50 tokens billed, $0.0100",
@@ -223,16 +223,16 @@ T("shell commands, summaries, usage, errors, and queues are rows", function()
     "⧗ steer · also check b.lua",
     "⧗ follow-up · then summarize",
   })
-  H.cursor_to_row(s, "Context compacted")
+  H.cursor_to_row(agent, "Context compacted")
   H.keys("K")
   eq(H.current_lines(), { "Earlier work" })
 end)
 
 T("the cached render matches a fresh one", function()
-  local s = open_finished()
-  local Transcript = require("dyadic.transcript")
+  local agent = open_finished()
+  local History = require("dyadic.history")
   local function snapshot(cache)
-    local model = Transcript.build(s, { cache = cache })
+    local model = History.build(agent, { cache = cache })
     local rows = {}
     for _, row in ipairs(model.rows) do
       rows[#rows + 1] = { row.line, row.kind, row.chunks }
@@ -241,36 +241,36 @@ T("the cached render matches a fresh one", function()
   end
   -- Build once to fill the cache, then compare a cached build with an uncached one.
   snapshot(true)
-  eq(vim.tbl_count(s._render_cache), 1)
+  eq(vim.tbl_count(agent._render_cache), 1)
   eq(snapshot(true), snapshot(false))
-  s.expanded["group:c1"] = true
+  agent.expanded["group:c1"] = true
   eq(snapshot(true), snapshot(false))
 end)
 
 T("output follows only while the cursor is on the last line", function()
-  local s = open_finished()
-  local win = H.transcript_win(s)
-  vim.api.nvim_win_set_cursor(win, { vim.api.nvim_buf_line_count(s.buf), 0 })
-  s:set_draft("more")
-  s:submit()
+  local agent = open_finished()
+  local win = H.history_win(agent)
+  vim.api.nvim_win_set_cursor(win, { vim.api.nvim_buf_line_count(agent.history_buf), 0 })
+  agent:set_draft("more")
+  agent:submit()
   H.wait(function()
-    return s.phase == "Idle" and #s.messages == 8
+    return agent.phase == "Idle" and #agent.messages == 8
   end)
   H.settle()
-  eq(vim.api.nvim_win_get_cursor(win)[1], #H.transcript(s))
+  eq(vim.api.nvim_win_get_cursor(win)[1], #H.history(agent))
   vim.api.nvim_win_set_cursor(win, { 3, 0 })
-  s:set_draft("again")
-  s:submit()
+  agent:set_draft("again")
+  agent:submit()
   H.wait(function()
-    return #s.messages == 10
+    return #agent.messages == 10
   end)
   H.settle()
   eq(vim.api.nvim_win_get_cursor(win)[1], 3)
 end)
 
 T("g] and g[ jump between messages", function()
-  local s = open_finished()
-  local win = H.transcript_win(s)
+  local agent = open_finished()
+  local win = H.history_win(agent)
   vim.api.nvim_set_current_win(win)
   vim.api.nvim_win_set_cursor(win, { 1, 0 })
   H.keys("g]")
@@ -281,36 +281,36 @@ T("g] and g[ jump between messages", function()
   eq(vim.api.nvim_win_get_cursor(0)[1], 3)
 end)
 
-T("a hidden transcript catches up when shown", function()
-  local s = H.open()
-  vim.api.nvim_win_set_buf(H.transcript_win(s), vim.api.nvim_create_buf(true, true))
-  s:set_draft("hello")
-  s:submit()
+T("a hidden history catches up when shown", function()
+  local agent = H.open()
+  vim.api.nvim_win_set_buf(H.history_win(agent), vim.api.nvim_create_buf(true, true))
+  agent:set_draft("hello")
+  agent:submit()
   H.wait(function()
-    return s.phase == "Idle" and #s.messages == 2
+    return agent.phase == "Idle" and #agent.messages == 2
   end)
   H.settle()
-  eq(s._view.stale, true)
-  eq(#H.transcript(s), 1)
-  require("dyadic").show(s)
-  eq(s._view.stale, false)
-  ok(vim.tbl_contains(H.transcript(s), "echo: hello"))
+  eq(agent._view.stale, true)
+  eq(#H.history(agent), 1)
+  require("dyadic").show(agent)
+  eq(agent._view.stale, false)
+  ok(vim.tbl_contains(H.history(agent), "echo: hello"))
 end)
 
 T("buffers keep their own filetype and parse as markdown", function()
-  local s = H.open()
-  eq(vim.bo[s.buf].filetype, "dyadic")
-  eq(vim.bo[s.draft].filetype, "dyadic_input")
-  ok(vim.treesitter.highlighter.active[s.buf] ~= nil, "treesitter is not active")
-  eq(vim.treesitter.get_parser(s.buf):lang(), "markdown")
+  local agent = H.open()
+  eq(vim.bo[agent.history_buf].filetype, "dyadic")
+  eq(vim.bo[agent.composer_buf].filetype, "dyadic_composer")
+  ok(vim.treesitter.highlighter.active[agent.history_buf] ~= nil, "treesitter is not active")
+  eq(vim.treesitter.get_parser(agent.history_buf):lang(), "markdown")
   eq(vim.treesitter.language.get_lang("dyadic"), "markdown")
 end)
 
-T("status is shown on the transcript window", function()
-  local s = H.open()
+T("status is shown on the history window", function()
+  local agent = H.open()
   H.settle()
-  eq(vim.wo[H.transcript_win(s)].statusline, " Dyadic | Idle | fake/fake-model | thinking off | tokens 0 | $0.0000")
-  eq(s:status().model, "fake/fake-model")
+  eq(vim.wo[H.history_win(agent)].statusline, " Dyadic | Idle | fake/fake-model | thinking off | tokens 0 | $0.0000")
+  eq(agent:status().model, "fake/fake-model")
 end)
 
 return T

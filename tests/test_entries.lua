@@ -16,7 +16,7 @@ T("entries kept by a compaction follow its summary", function()
     { type = "compaction", summary = "Earlier work", firstKeptEntryId = "e2" },
     { role = "user", content = "after", timestamp = 4 },
   })
-  local messages = require("dyadic.history").messages(entries, "e5")
+  local messages = require("dyadic.entries").messages(entries, "e5")
   eq(roles(messages), { "e4:compactionSummary", "e2:user", "e3:assistant", "e5:user" })
 end)
 
@@ -25,7 +25,7 @@ T("only the branch up to the leaf is shown", function()
     { role = "user", content = "one", timestamp = 1 },
     { role = "user", content = "two", timestamp = 2 },
   })
-  eq(roles(require("dyadic.history").messages(entries, "e1")), { "e1:user" })
+  eq(roles(require("dyadic.entries").messages(entries, "e1")), { "e1:user" })
 end)
 
 return T

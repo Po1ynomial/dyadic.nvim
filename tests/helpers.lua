@@ -65,7 +65,7 @@ function H.chain(items)
   return entries
 end
 
--- Configure dyadic to use tests/fakepi.lua with a scenario, open a conversation, and wait
+-- Configure dyadic to use tests/fakepi.lua with a scenario, open an agent, and wait
 -- until it is idle. Scenario values must be plain Lua data.
 function H.open(scenario, config)
   local path = vim.fn.tempname() .. "-dyadic-scenario.lua"
@@ -74,28 +74,28 @@ function H.open(scenario, config)
   config.cmd = { vim.v.progpath, "--clean", "-l", H.root .. "/tests/fakepi.lua", path }
   local dyadic = require("dyadic")
   dyadic.setup(config)
-  local s = dyadic.open()
+  local agent = dyadic.open()
   H.wait(function()
-    return s.state.sessionId ~= nil and s.phase == "Idle"
-  end, 3000, "conversation to become idle")
+    return agent.state.sessionId ~= nil and agent.phase == "Idle"
+  end, 3000, "agent to become idle")
   -- The startup refresh continues with stats and commands; wait for a complete one.
   local refreshed = false
-  s:refresh(function()
+  agent:refresh(function()
     refreshed = true
   end)
   H.wait(function()
     return refreshed
   end, 3000, "refresh")
   -- Keep row text independent of this machine's paths.
-  s.cwd = "/work"
-  require("dyadic.view").render(s)
-  return s
+  agent.cwd = "/work"
+  require("dyadic.view").render(agent)
+  return agent
 end
 
 -- Send a request and wait for its response; events pi sent before it are handled by then.
-function H.request(s, kind, fields)
+function H.request(agent, kind, fields)
   local done, response_err, response_data = false, nil, nil
-  s:request(kind, fields or {}, function(err, data)
+  agent:request(kind, fields or {}, function(err, data)
     done, response_err, response_data = true, err, data
   end)
   H.wait(function()
@@ -104,18 +104,18 @@ function H.request(s, kind, fields)
   return response_err, response_data
 end
 
-function H.emit(s, events)
-  H.request(s, "test_emit", { events = events })
+function H.emit(agent, events)
+  H.request(agent, "test_emit", { events = events })
 end
 
-function H.transcript(s)
-  return vim.api.nvim_buf_get_lines(s.buf, 0, -1, false)
+function H.history(agent)
+  return vim.api.nvim_buf_get_lines(agent.history_buf, 0, -1, false)
 end
 
 -- Overlay rows as { line = 1-based, text = concatenated chunks }.
-function H.rows(s)
+function H.rows(agent)
   local out = {}
-  for _, row in ipairs(s._view.model.rows) do
+  for _, row in ipairs(agent._view.model.rows) do
     local parts = {}
     for _, chunk in ipairs(row.chunks) do
       parts[#parts + 1] = chunk[1]
@@ -125,21 +125,21 @@ function H.rows(s)
   return out
 end
 
-function H.row_texts(s)
+function H.row_texts(agent)
   return vim.tbl_map(function(row)
     return row.text
-  end, H.rows(s))
+  end, H.rows(agent))
 end
 
-function H.transcript_win(s)
-  return vim.fn.win_findbuf(s.buf)[1]
+function H.history_win(agent)
+  return vim.fn.win_findbuf(agent.history_buf)[1]
 end
 
--- Focus the transcript and put the cursor on the first row whose text matches.
-function H.cursor_to_row(s, pattern)
-  for _, row in ipairs(H.rows(s)) do
+-- Focus the history and put the cursor on the first row whose text matches.
+function H.cursor_to_row(agent, pattern)
+  for _, row in ipairs(H.rows(agent)) do
     if row.text:find(pattern) then
-      local win = H.transcript_win(s)
+      local win = H.history_win(agent)
       vim.api.nvim_set_current_win(win)
       vim.api.nvim_win_set_cursor(win, { row.line, 0 })
       return row.line

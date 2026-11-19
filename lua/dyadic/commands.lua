@@ -37,46 +37,46 @@ local unsupported = {
   dementedelves = true,
 }
 
-local function alive(s)
-  return not s.closed
+local function alive(agent)
+  return not agent.closed
 end
 
-local function consume(s, original)
-  if alive(s) and s:get_draft() == original then
-    s:set_draft("")
+local function consume(agent, original)
+  if alive(agent) and agent:get_draft() == original then
+    agent:set_draft("")
   end
 end
 
-local function request(s, kind, fields, original, callback)
-  return s:request(kind, fields or {}, function(err, data)
-    if err or not alive(s) then
+local function request(agent, kind, fields, original, callback)
+  return agent:request(kind, fields or {}, function(err, data)
+    if err or not alive(agent) then
       return
     end
     data = type(data) == "table" and data or {}
     if data.cancelled then
-      s:notice(kind .. " cancelled", "info")
+      agent:notice(kind .. " cancelled", "info")
       return
     end
-    consume(s, original)
+    consume(agent, original)
     if callback then
       callback(data)
     end
   end)
 end
 
-local function change(s, kind, fields, original)
-  request(s, kind, fields, original, function()
-    s:refresh()
+local function change(agent, kind, fields, original)
+  request(agent, kind, fields, original, function()
+    agent:refresh()
   end)
 end
 
-local function pick(s, items, prompt, format, callback)
+local function pick(agent, items, prompt, format, callback)
   if #items == 0 then
-    s:notice("No " .. prompt:lower() .. " available", "warning")
+    agent:notice("No " .. prompt:lower() .. " available", "warning")
     return
   end
   vim.ui.select(items, { prompt = prompt, format_item = format }, function(item)
-    if item ~= nil and alive(s) then
+    if item ~= nil and alive(agent) then
       callback(item)
     end
   end)
@@ -136,10 +136,10 @@ end
 
 -- Pi resolves all sessionDir values from its process cwd, not the settings file.
 -- Its default grouping removes one leading separator and replaces /, \\, and :.
-local function storage(s)
+local function storage(agent)
   local agent_env = vim.env.PI_CODING_AGENT_DIR
-  local agent = resolve(agent_env and agent_env ~= "" and agent_env or "~/.pi/agent", s.cwd)
-  local args = s.config.args or {}
+  local agent_dir = resolve(agent_env and agent_env ~= "" and agent_env or "~/.pi/agent", agent.cwd)
+  local args = agent.config.args or {}
   local explicit
   for i, arg in ipairs(args) do
     if arg == "--session-dir" then
@@ -148,16 +148,16 @@ local function storage(s)
   end
   local configured = explicit or vim.env.PI_CODING_AGENT_SESSION_DIR
   if not configured or configured == "" then
-    local project = settings(vim.fs.joinpath(s.cwd, ".pi", "settings.json"))
-    local user = settings(vim.fs.joinpath(agent, "settings.json"))
+    local project = settings(vim.fs.joinpath(agent.cwd, ".pi", "settings.json"))
+    local user = settings(vim.fs.joinpath(agent_dir, "settings.json"))
     configured = project.sessionDir or user.sessionDir
   end
-  local root = vim.fs.joinpath(agent, "sessions")
-  local grouped = "--" .. resolve(s.cwd, s.cwd):gsub("^[/\\]", ""):gsub("[/\\:]", "-") .. "--"
-  local directory = configured and configured ~= "" and resolve(configured, s.cwd) or vim.fs.joinpath(root, grouped)
-  local current = s.state and s.state.sessionFile
+  local root = vim.fs.joinpath(agent_dir, "sessions")
+  local grouped = "--" .. resolve(agent.cwd, agent.cwd):gsub("^[/\\]", ""):gsub("[/\\:]", "-") .. "--"
+  local directory = configured and configured ~= "" and resolve(configured, agent.cwd) or vim.fs.joinpath(root, grouped)
+  local current = agent.state and agent.state.sessionFile
   if type(current) == "string" and current ~= "" then
-    directory = vim.fs.dirname(resolve(current, s.cwd))
+    directory = vim.fs.dirname(resolve(current, agent.cwd))
   end
   return directory, configured and configured ~= "" and directory or root
 end
@@ -175,7 +175,7 @@ local function content_text(content)
   return table.concat(parts, "\n")
 end
 
--- Stream metadata without materializing an entire conversation or decoding tool output.
+-- Stream metadata without materializing an entire session or decoding tool output.
 -- Oversized lines are skipped; a malformed header never becomes a selectable session.
 local function metadata(path)
   local fd = uv.fs_open(path, "r", 438)
@@ -258,8 +258,8 @@ local function cached_metadata(path)
   return hit.info or nil
 end
 
-local function discover(s, all)
-  local directory, root = storage(s)
+local function discover(agent, all)
+  local directory, root = storage(agent)
   local found = {}
   local function scan(dir, recursive)
     local handle = uv.fs_scandir(dir)
@@ -276,7 +276,7 @@ local function discover(s, all)
         scan(path, false)
       elseif kind == "file" and name:match("%.jsonl$") then
         local item = cached_metadata(path)
-        if item and (all or resolve(item.cwd, s.cwd) == resolve(s.cwd, s.cwd)) then
+        if item and (all or resolve(item.cwd, agent.cwd) == resolve(agent.cwd, agent.cwd)) then
           found[#found + 1] = item
         end
       end
@@ -292,26 +292,26 @@ local function discover(s, all)
   return found
 end
 
-local function switched(s, kind, fields, original)
-  request(s, kind, fields, original, function(data)
-    s.partial, s.tools, s.bash = nil, {}, nil
-    s.queue = { steering = {}, followUp = {} }
+local function switched(agent, kind, fields, original)
+  request(agent, kind, fields, original, function(data)
+    agent.partial, agent.tools, agent.bash = nil, {}, nil
+    agent.queue = { steering = {}, followUp = {} }
     if kind == "fork" and type(data.text) == "string" and data.text ~= "" then
-      local draft = s:get_draft()
-      s:set_draft(draft == "" and data.text or draft .. "\n\n" .. data.text)
+      local draft = agent:get_draft()
+      agent:set_draft(draft == "" and data.text or draft .. "\n\n" .. data.text)
     end
-    s:refresh()
+    agent:refresh()
   end)
 end
 
-local function model(s, argument, original)
-  s:request("get_available_models", {}, function(err, data)
-    if err or not alive(s) then
+local function model(agent, argument, original)
+  agent:request("get_available_models", {}, function(err, data)
+    if err or not alive(agent) then
       return
     end
     local models = data and data.models or {}
     local function apply(item)
-      change(s, "set_model", { provider = item.provider, modelId = item.id }, original)
+      change(agent, "set_model", { provider = item.provider, modelId = item.id }, original)
     end
     if argument ~= "" then
       local exact, matching = {}, {}
@@ -332,31 +332,31 @@ local function model(s, argument, original)
         return
       end
     end
-    pick(s, models, "Models", function(item)
+    pick(agent, models, "Models", function(item)
       return item.provider .. "/" .. item.id .. (item.name and "  " .. item.name or "")
     end, apply)
   end)
 end
 
-local function thinking(s, argument, original)
-  s:request("get_available_thinking_levels", {}, function(err, data)
-    if err or not alive(s) then
+local function thinking(agent, argument, original)
+  agent:request("get_available_thinking_levels", {}, function(err, data)
+    if err or not alive(agent) then
       return
     end
     local levels = data and data.levels or {}
-    s.available_thinking_levels = levels
+    agent.available_thinking_levels = levels
     local function apply(level)
-      change(s, "set_thinking_level", { level = level }, original)
+      change(agent, "set_thinking_level", { level = level }, original)
     end
     if argument ~= "" then
       if vim.tbl_contains(levels, argument) then
         apply(argument)
       else
-        s:notice("Thinking level unavailable. Choose " .. table.concat(levels, ", "), "error")
+        agent:notice("Thinking level unavailable. Choose " .. table.concat(levels, ", "), "error")
       end
       return
     end
-    pick(s, levels, "Thinking levels", nil, apply)
+    pick(agent, levels, "Thinking levels", nil, apply)
   end)
 end
 
@@ -368,17 +368,17 @@ local settings_controls = {
 }
 local settings_names = { "auto-compaction", "auto-retry", "steering", "follow-up" }
 
-local function configure(s, argument, original)
+local function configure(agent, argument, original)
   local name, value = argument:match("^(%S+)%s*(.-)$")
   local function choose(key, chosen)
     local control = settings_controls[key]
     if not control then
-      s:notice("RPC settings: " .. table.concat(settings_names, ", "), "error")
+      agent:notice("RPC settings: " .. table.concat(settings_names, ", "), "error")
       return
     end
     local function apply(selected)
       if not vim.tbl_contains(control.values, selected) then
-        s:notice("Use " .. table.concat(control.values, " or ") .. " for " .. key, "error")
+        agent:notice("Use " .. table.concat(control.values, " or ") .. " for " .. key, "error")
         return
       end
       local fields = {}
@@ -387,19 +387,19 @@ local function configure(s, argument, original)
       else
         fields.mode = selected
       end
-      change(s, control.rpc, fields, original)
+      change(agent, control.rpc, fields, original)
     end
     if chosen and chosen ~= "" then
       apply(chosen)
     else
-      pick(s, control.values, key, nil, apply)
+      pick(agent, control.values, key, nil, apply)
     end
   end
   if name then
     choose(name, value)
   else
-    pick(s, settings_names, "RPC settings", function(key)
-      local state = s.state or {}
+    pick(agent, settings_names, "RPC settings", function(key)
+      local state = agent.state or {}
       local values = {
         ["auto-compaction"] = state.autoCompactionEnabled,
         steering = state.steeringMode,
@@ -414,10 +414,10 @@ local function configure(s, argument, original)
   end
 end
 
-local function stats(s, original)
-  request(s, "get_session_stats", {}, original, function(data)
-    s.stats = data
-    local state = s.state or {}
+local function stats(agent, original)
+  request(agent, "get_session_stats", {}, original, function(data)
+    agent.stats = data
+    local state = agent.state or {}
     local tokens = data.tokens or {}
     local lines = {
       "Session: " .. (state.sessionName or data.sessionId or state.sessionId or "unnamed"),
@@ -445,32 +445,32 @@ local function stats(s, original)
       lines[#lines + 1] =
         string.format("Context: %s / %s tokens (%s)", used or "unknown", context.contextWindow or "?", percent)
     end
-    s:notice(table.concat(lines, "\n"), "info")
+    agent:notice(table.concat(lines, "\n"), "info")
   end)
 end
 
-local function bash(s, text)
+local function bash(agent, text)
   local input = vim.trim(text)
   local excluded = input:sub(1, 2) == "!!"
   local command = vim.trim(input:sub(excluded and 3 or 2))
   if command == "" then
-    s:notice("Use !command or !!command", "error")
+    agent:notice("Use !command or !!command", "error")
     return
   end
-  if s.bash and s.bash.running then
-    s:notice("A shell command is already running. Abort it first.", "warning")
+  if agent.bash and agent.bash.running then
+    agent:notice("A shell command is already running. Abort it first.", "warning")
     return
   end
   local execution = { command = command, output = "", running = true, excludeFromContext = excluded }
-  s.bash = execution
-  execution.id = s:request("bash", { command = command, excludeFromContext = excluded }, function(err, data)
-    if not alive(s) then
+  agent.bash = execution
+  execution.id = agent:request("bash", { command = command, excludeFromContext = excluded }, function(err, data)
+    if not alive(agent) then
       return
     end
     execution.running = false
     if err then
       execution.error = err
-      s:render()
+      agent:render()
       return
     end
     data = data or {}
@@ -480,20 +480,20 @@ local function bash(s, text)
     execution.exitCode, execution.cancelled = data.exitCode, data.cancelled
     execution.truncated, execution.fullOutputPath = data.truncated, data.fullOutputPath
     if not data.cancelled then
-      consume(s, text)
+      consume(agent, text)
     end
-    s:refresh()
+    agent:refresh()
   end)
   if not execution.id then
     execution.running = false
   end
-  s:render()
+  agent:render()
 end
 
-function M.run(s, text)
+function M.run(agent, text)
   local input = vim.trim(text)
   if input:sub(1, 1) == "!" then
-    bash(s, text)
+    bash(agent, text)
     return true
   end
   local name, argument = input:match("^/([^%s]+)%s*(.*)$")
@@ -503,80 +503,80 @@ function M.run(s, text)
   argument = vim.trim(argument)
   if name == "hotkeys" then
     -- Mappings are buffer-local with descriptions, so Neovim already lists the active set.
-    s:notice("/hotkeys is not available. Use :nmap <buffer> or :help dyadic-mappings", "warning")
+    agent:notice("/hotkeys is not available. Use :nmap <buffer> or :help dyadic-mappings", "warning")
   elseif unsupported[name] then
-    s:notice("/" .. name .. " is not available through stock pi RPC. Use pi in a terminal.", "error")
+    agent:notice("/" .. name .. " is not available through stock pi RPC. Use pi in a terminal.", "error")
   elseif name == "model" then
-    model(s, argument, text)
+    model(agent, argument, text)
   elseif name == "thinking" then
-    thinking(s, argument, text)
+    thinking(agent, argument, text)
   elseif name == "settings" then
-    configure(s, argument, text)
+    configure(agent, argument, text)
   elseif name == "new" or name == "clone" then
     if argument ~= "" then
-      s:notice("Usage: /" .. name, "error")
+      agent:notice("Usage: /" .. name, "error")
     else
-      switched(s, name == "new" and "new_session" or "clone", {}, text)
+      switched(agent, name == "new" and "new_session" or "clone", {}, text)
     end
   elseif name == "resume" then
     if argument ~= "" and argument ~= "all" then
-      local path = resolve(argument, s.cwd)
+      local path = resolve(argument, agent.cwd)
       if not cached_metadata(path) then
-        s:notice("Not a readable pi session file: " .. path, "error")
+        agent:notice("Not a readable pi session file: " .. path, "error")
       else
-        switched(s, "switch_session", { sessionPath = path }, text)
+        switched(agent, "switch_session", { sessionPath = path }, text)
       end
     else
-      pick(s, discover(s, argument == "all"), "Saved sessions", function(item)
+      pick(agent, discover(agent, argument == "all"), "Saved sessions", function(item)
         return (item.name or item.preview or item.id) .. "  " .. (item.timestamp or "") .. "  " .. item.cwd
       end, function(item)
-        switched(s, "switch_session", { sessionPath = item.path }, text)
+        switched(agent, "switch_session", { sessionPath = item.path }, text)
       end)
     end
   elseif name == "fork" then
-    s:request("get_fork_messages", {}, function(err, data)
-      if err or not alive(s) then
+    agent:request("get_fork_messages", {}, function(err, data)
+      if err or not alive(agent) then
         return
       end
       local messages = data and data.messages or {}
       if argument ~= "" then
         for _, item in ipairs(messages) do
           if item.entryId == argument then
-            switched(s, "fork", { entryId = item.entryId }, text)
+            switched(agent, "fork", { entryId = item.entryId }, text)
             return
           end
         end
-        s:notice("No forkable user message with entry ID " .. argument, "error")
+        agent:notice("No forkable user message with entry ID " .. argument, "error")
         return
       end
-      pick(s, messages, "Fork messages", function(item)
+      pick(agent, messages, "Fork messages", function(item)
         return item.entryId .. "  " .. (item.text or ""):gsub("%s+", " "):sub(1, 150)
       end, function(item)
-        switched(s, "fork", { entryId = item.entryId }, text)
+        switched(agent, "fork", { entryId = item.entryId }, text)
       end)
     end)
   elseif name == "name" then
     if argument == "" then
-      request(s, "get_state", {}, text, function(data)
-        s:notice("Session name: " .. (data.sessionName or "unnamed"), "info")
+      request(agent, "get_state", {}, text, function(data)
+        agent:notice("Session name: " .. (data.sessionName or "unnamed"), "info")
       end)
     else
-      change(s, "set_session_name", { name = argument }, text)
+      change(agent, "set_session_name", { name = argument }, text)
     end
   elseif name == "session" or name == "stats" then
-    stats(s, text)
+    stats(agent, text)
   elseif name == "compact" then
-    change(s, "compact", argument ~= "" and { customInstructions = argument } or {}, text)
+    change(agent, "compact", argument ~= "" and { customInstructions = argument } or {}, text)
   elseif name == "copy" then
-    request(s, "get_last_assistant_text", {}, nil, function(data)
+    request(agent, "get_last_assistant_text", {}, nil, function(data)
       if type(data.text) ~= "string" then
-        s:notice("No assistant text to copy", "warning")
+        agent:notice("No assistant text to copy", "warning")
         return
       end
       vim.fn.setreg('"', data.text, "v")
       local ok, err = pcall(vim.fn.setreg, "+", data.text, "v")
-      consume(s, text)
-      s:notice(
+      consume(agent, text)
+      agent:notice(
         ok and "Copied last assistant response to clipboard and unnamed register"
           or "Copied to unnamed register; clipboard unavailable: " .. tostring(err),
         ok and "info" or "warning"
@@ -584,24 +584,30 @@ function M.run(s, text)
     end)
   elseif name == "export" then
     if argument:lower():match("%.jsonl$") or argument:lower() == "jsonl" then
-      s:notice(
+      agent:notice(
         "JSONL export is not exposed by stock pi RPC. Use /export in pi; HTML export is available here.",
         "error"
       )
     else
-      request(s, "export_html", argument ~= "" and { outputPath = resolve(argument, s.cwd) } or {}, text, function(data)
-        s:notice("Exported HTML: " .. tostring(data.path), "info")
-      end)
+      request(
+        agent,
+        "export_html",
+        argument ~= "" and { outputPath = resolve(argument, agent.cwd) } or {},
+        text,
+        function(data)
+          agent:notice("Exported HTML: " .. tostring(data.path), "info")
+        end
+      )
     end
   elseif name == "quit" then
-    s:close()
+    agent:close()
   else
     return false
   end
   return true
 end
 
-function M.complete(s, prefix)
+function M.complete(agent, prefix)
   prefix = prefix or ""
   if prefix ~= "" and prefix:sub(1, 1) ~= "/" then
     prefix = "/" .. prefix
@@ -626,14 +632,14 @@ function M.complete(s, prefix)
     end
   elseif prefix:match("^/thinking%s+") then
     -- The picker queries model-specific levels; do not suggest unsupported levels.
-    for _, level in ipairs(s.available_thinking_levels or {}) do
+    for _, level in ipairs(agent.available_thinking_levels or {}) do
       add("/thinking " .. level)
     end
   else
     for _, name in ipairs(M.names) do
       add("/" .. name)
     end
-    for _, command in ipairs(s.commands or {}) do
+    for _, command in ipairs(agent.commands or {}) do
       local name = type(command) == "table" and command.name or command
       if type(name) == "string" then
         add(name:sub(1, 1) == "/" and name or "/" .. name)

@@ -1,10 +1,10 @@
--- Scratch buffers showing one transcript item in full: a tool call, thinking block, shell
+-- Scratch buffers showing one history item in full: a tool call, thinking block, shell
 -- command, summary, or error. Each item gets its own buffer, which keeps updating while it
 -- is visible and is wiped when hidden.
 local M = {}
 local api = vim.api
 local text = require("dyadic.text")
-local transcript = require("dyadic.transcript")
+local History = require("dyadic.history")
 local header_ns = api.nvim_create_namespace("dyadic_detail")
 
 local function filetype_for(path)
@@ -25,7 +25,7 @@ local function tool_content(item)
   local live = item.live or {}
   local result = item.result or live.result or live.partialResult
   local args = type(item.args) == "table" and item.args or {}
-  local status = transcript.tool_status(item)
+  local status = History.tool_status(item)
   local header = { (item.name or "tool") .. " · " .. status }
   if live.durationMs then
     header[1] = header[1] .. string.format(" · %dms", live.durationMs)
@@ -103,8 +103,8 @@ local function visible(buf)
   return #vim.fn.win_findbuf(buf) > 0
 end
 
-local function update(s, key, buf)
-  local item = s._view.model and s._view.model.items[key]
+local function update(agent, key, buf)
+  local item = agent._view.model and agent._view.model.items[key]
   if not item then
     return
   end
@@ -133,17 +133,17 @@ local function update(s, key, buf)
   return #virt
 end
 
--- Refresh every visible detail buffer of a conversation.
-function M.refresh(s)
-  for key, buf in pairs(s._view.details) do
+-- Refresh every visible detail buffer of an agent.
+function M.refresh(agent)
+  for key, buf in pairs(agent._view.details) do
     if api.nvim_buf_is_valid(buf) and visible(buf) then
-      update(s, key, buf)
+      update(agent, key, buf)
     end
   end
 end
 
-function M.any_visible(s)
-  for _, buf in pairs(s._view.details) do
+function M.any_visible(agent)
+  for _, buf in pairs(agent._view.details) do
     if api.nvim_buf_is_valid(buf) and visible(buf) then
       return true
     end
@@ -151,33 +151,33 @@ function M.any_visible(s)
   return false
 end
 
-function M.open(s, key)
-  local item = s._view.model and s._view.model.items[key]
+function M.open(agent, key)
+  local item = agent._view.model and agent._view.model.items[key]
   if not item or not M.content(item) then
     return false
   end
-  local buf = s._view.details[key]
+  local buf = agent._view.details[key]
   if not (buf and api.nvim_buf_is_valid(buf)) then
     buf = api.nvim_create_buf(false, true)
-    s._view.details[key] = buf
+    agent._view.details[key] = buf
     vim.bo[buf].buftype = "nofile"
     vim.bo[buf].bufhidden = "wipe"
     vim.bo[buf].swapfile = false
     vim.bo[buf].undolevels = -1
     vim.bo[buf].modifiable = false
-    api.nvim_buf_set_name(buf, "dyadic://" .. s.id .. "/detail/" .. key:gsub("[^%w%-_.:]", "_"))
+    api.nvim_buf_set_name(buf, "dyadic://" .. agent.id .. "/detail/" .. key:gsub("[^%w%-_.:]", "_"))
     vim.keymap.set("n", "q", "<Cmd>close<CR>", { buffer = buf, silent = true, desc = "Dyadic close details" })
     api.nvim_create_autocmd("BufWipeout", {
       buffer = buf,
       once = true,
       callback = function()
-        if s._view.details[key] == buf then
-          s._view.details[key] = nil
+        if agent._view.details[key] == buf then
+          agent._view.details[key] = nil
         end
       end,
     })
   end
-  local header = update(s, key, buf) or 0
+  local header = update(agent, key, buf) or 0
   local win = vim.fn.win_findbuf(buf)[1]
   if win then
     api.nvim_set_current_win(win)
@@ -192,13 +192,13 @@ function M.open(s, key)
   return true
 end
 
-function M.dispose(s)
-  for _, buf in pairs(s._view.details or {}) do
+function M.dispose(agent)
+  for _, buf in pairs(agent._view.details or {}) do
     if api.nvim_buf_is_valid(buf) then
       pcall(api.nvim_buf_delete, buf, { force = true })
     end
   end
-  s._view.details = {}
+  agent._view.details = {}
 end
 
 return M

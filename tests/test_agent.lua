@@ -3,81 +3,81 @@ local eq, ok = H.eq, H.ok
 local T = H.suite()
 
 T("starts idle and reports the model", function()
-  local s = H.open()
-  eq(s.phase, "Idle")
-  eq(s.state.model.id, "fake-model")
+  local agent = H.open()
+  eq(agent.phase, "Idle")
+  eq(agent.state.model.id, "fake-model")
 end)
 
 T("submit sends a prompt and clears the draft", function()
-  local s = H.open()
-  s:set_draft("hello")
-  s:submit()
+  local agent = H.open()
+  agent:set_draft("hello")
+  agent:submit()
   H.wait(function()
-    return #s.messages == 2 and s.phase == "Idle"
+    return #agent.messages == 2 and agent.phase == "Idle"
   end)
-  eq(s:get_draft(), "")
-  eq(s.messages[2].content[1].text, "echo: hello")
+  eq(agent:get_draft(), "")
+  eq(agent.messages[2].content[1].text, "echo: hello")
 end)
 
 T("abort restores pi's queue into the draft", function()
-  local s = H.open()
-  H.request(s, "test_set", { queue = { steering = { "one" }, followUp = { "two" } } })
-  s:set_draft("draft")
-  s:abort()
+  local agent = H.open()
+  H.request(agent, "test_set", { queue = { steering = { "one" }, followUp = { "two" } } })
+  agent:set_draft("draft")
+  agent:abort()
   H.wait(function()
-    return s:get_draft() ~= "draft"
+    return agent:get_draft() ~= "draft"
   end)
-  eq(s:get_draft(), "draft\n\none\n\ntwo")
+  eq(agent:get_draft(), "draft\n\none\n\ntwo")
 end)
 
 T("status resyncs after a compaction pi started itself", function()
-  local s = H.open()
-  H.emit(s, {
+  local agent = H.open()
+  H.emit(agent, {
     { type = "compaction_start", reason = "threshold" },
     { type = "compaction_end", reason = "threshold", aborted = false, willRetry = false },
   })
   H.wait(function()
-    return s.phase == "Idle" and not s.active
+    return agent.phase == "Idle" and not agent.active
   end)
 end)
 
-T("notices go through vim.notify, not the transcript", function()
-  local s = H.open()
-  s:set_draft("/session")
-  s:submit()
+T("notices go through vim.notify, not the history", function()
+  local agent = H.open()
+  agent:set_draft("/session")
+  agent:submit()
   H.wait(function()
     return #_G.notes > 0
   end)
   ok(_G.notes[1].msg:match("^Dyadic: Session: "), _G.notes[1].msg)
-  eq(table.concat(H.transcript(s), "\n"):find("Session:", 1, true), nil)
+  eq(table.concat(H.history(agent), "\n"):find("Session:", 1, true), nil)
 end)
 
 T("a crash notifies once with the stderr log path", function()
-  local s = H.open()
-  s:request("test_crash", {})
-  s:request("get_state", {})
+  local agent = H.open()
+  agent:request("test_crash", {})
+  agent:request("get_state", {})
   H.wait(function()
-    return s.phase:match("^Pi exited") ~= nil
+    return agent.phase:match("^Pi exited") ~= nil
   end)
   H.settle()
   eq(#_G.notes, 1)
   local path = _G.notes[1].msg:match("stderr log: (.+)$")
   ok(path, _G.notes[1].msg)
   eq(vim.fn.readfile(path), { "fake stack trace" })
-  eq(s.phase, "Pi exited (code 3)")
+  eq(agent.phase, "Pi exited (code 3)")
 end)
 
 T("a crash during the startup refresh notifies once", function()
   local dyadic = require("dyadic")
   dyadic.setup({ cmd = { vim.v.progpath, "--clean", "-l", H.root .. "/tests/fakepi.lua" } })
-  local s = dyadic.open()
+  local agent = dyadic.open()
   H.wait(function()
-    return s.phase == "Idle"
+    return agent.phase == "Idle"
   end)
   -- Stats and commands are still pending; the chain would continue on a dead process.
-  s:request("test_crash", {})
+  agent:request("test_crash", {})
   H.wait(function()
-    return s.phase:match("^Pi exited") ~= nil
+    return agent.phase:match("^Pi exited") ~= nil
   end)
   H.settle()
   eq(#_G.notes, 1, vim.inspect(_G.notes))
@@ -85,7 +85,7 @@ end)
 
 -- Headless Neovim also checks timestamps on its own, so observe dyadic's checktime calls.
 T("file-changing tools check only unmodified file buffers", function()
-  local s = H.open()
+  local agent = H.open()
   local clean, dirty = vim.fn.tempname() .. "-clean.txt", vim.fn.tempname() .. "-dirty.txt"
   vim.fn.writefile({ "old" }, clean)
   vim.fn.writefile({ "old" }, dirty)
@@ -104,7 +104,7 @@ T("file-changing tools check only unmodified file buffers", function()
     return command(text)
   end
   local function finish(tool)
-    H.emit(s, { { type = "tool_execution_end", toolCallId = "c", toolName = tool } })
+    H.emit(agent, { { type = "tool_execution_end", toolCallId = "c", toolName = tool } })
     H.settle(120)
   end
   finish("read")
@@ -112,21 +112,21 @@ T("file-changing tools check only unmodified file buffers", function()
   finish("edit")
   ok(vim.tbl_contains(checked, clean_buf), "unmodified buffer was not checked")
   ok(not vim.tbl_contains(checked, dirty_buf), "modified buffer was checked")
-  ok(not vim.tbl_contains(checked, s.buf), "transcript was checked")
+  ok(not vim.tbl_contains(checked, agent.history_buf), "history was checked")
 end)
 
 T("an inherited NVIM is not passed to pi", function()
   vim.env.NVIM = "/tmp/outer-nvim.sock"
-  local s = H.open()
-  eq(s.state._env_nvim, vim.NIL)
+  local agent = H.open()
+  eq(agent.state._env_nvim, vim.NIL)
 end)
 
 T("closing ends the pi process", function()
-  local s = H.open()
-  local pid = s.rpc.pid
+  local agent = H.open()
+  local pid = agent.rpc.pid
   require("dyadic").command("close")
   H.wait(function()
-    return s.rpc._finished == true
+    return agent.rpc._finished == true
   end)
   ok(vim.uv.kill(pid, 0) ~= 0, "pi is still running")
 end)
