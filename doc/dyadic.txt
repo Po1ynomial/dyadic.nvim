@@ -459,14 +459,27 @@ Agent fields and methods:
 ==============================================================================
 11. EDITOR FILES                                                *dyadic-files*
 
-pi changes files with its own tools. After a tool other than `read`, `grep`,
-`find`, or `ls` finishes, dyadic runs |:checktime| on every loaded,
-unmodified file buffer, so they follow the agent's edits. 'autoread' decides
-whether reloading asks first. Buffers with unsaved changes are skipped;
-Neovim warns about them at its next timestamp check.
+With the bridge (|dyadic-bridge|), pi's `read`, `edit`, and `write` tools go
+through the editor; pi keeps its own matching, results, and rendering:
 
-pi reads files from disk, so save a buffer before asking about unsaved
-changes.
+- `read` returns a file's buffer text when the file is loaded with unsaved
+  changes, and reads the disk otherwise.
+- `edit` and `write` change a loaded file in its buffer, matching against
+  the buffer's text, and then save it with a normal |:write|, so save hooks
+  such as formatters run and your own unsaved changes are saved too. The
+  change lands hunk by hunk, so marks and folds on other lines stay, and one
+  |u| undoes it. A file without a buffer is written to disk as by stock pi.
+
+The model is told this once, in the tools' guidelines; results stay pi's.
+
+Other tools, such as `bash`, work on the disk. After a tool other than
+`read`, `grep`, `find`, or `ls` finishes, dyadic runs |:checktime| on every
+loaded, unmodified file buffer, so they follow the agent's changes.
+'autoread' decides whether reloading asks first. Buffers with unsaved
+changes are skipped; Neovim warns about them at its next timestamp check.
+
+Without the bridge, pi reads files from disk, so save a buffer before asking
+about unsaved changes.
 
 ==============================================================================
 12. EXTENSIONS AND PROTOCOL LIMITS                         *dyadic-extensions*
@@ -494,8 +507,10 @@ Bridge                                                        *dyadic-bridge*
 The bridge is dyadic's own pi extension, `pi/dyadic.ts` in this plugin.
 dyadic loads it into each agent with `-e` unless `bridge = false`. It adds
 only what pi offers to extensions and not to RPC clients; dyadic draws all
-of its UI in Neovim. Features that need it: `/reload` and moving or labeling
-in the tree picker (|dyadic-tree|).
+of its UI in Neovim. Features that need it: `/reload`, moving or labeling in
+the tree picker (|dyadic-tree|), and the editor-backed `read`, `edit`, and
+`write` tools (|dyadic-files|). The bridge registers its own `read`, `edit`,
+and `write`; another extension that replaces them wins if pi loads it later.
 
 dyadic sends it commands as `/dyadic <name> [json]` prompts. The `/dyadic`
 command is hidden from completion and is not meant to be typed.

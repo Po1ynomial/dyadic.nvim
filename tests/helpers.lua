@@ -156,6 +156,34 @@ function H.current_lines()
   return vim.api.nvim_buf_get_lines(0, 0, -1, false)
 end
 
+-- Send a bridge request as the extension would and return dyadic's decoded answer. The
+-- agent's scenario must log to `log`.
+local bridge_ids = 0
+function H.bridge(agent, log, payload)
+  bridge_ids = bridge_ids + 1
+  local id = "test-bridge-" .. bridge_ids
+  H.emit(agent, {
+    {
+      type = "extension_ui_request",
+      id = id,
+      method = "input",
+      title = "dyadic.bridge",
+      placeholder = vim.json.encode(payload),
+    },
+  })
+  local answer
+  H.wait(function()
+    for _, record in ipairs(H.sent(log)) do
+      if record.type == "extension_ui_response" and record.id == id then
+        answer = vim.json.decode(record.value)
+        return true
+      end
+    end
+    return false
+  end, 3000, "the bridge answer")
+  return answer
+end
+
 -- Requests dyadic sent to the fake pi, decoded from the scenario log.
 function H.sent(log)
   local records = {}

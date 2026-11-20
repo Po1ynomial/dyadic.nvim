@@ -42,6 +42,7 @@ just test                          # all tests
 just test tests/test_history.lua   # selected files
 just test-real-pi                  # smoke test against the real pi, still without model calls
 just check-ts                      # type-check the bridge against the installed pi (needs deno)
+just test-ts                       # the bridge's tools against pi's own definitions (needs deno)
 just fmt                           # stylua
 ```
 

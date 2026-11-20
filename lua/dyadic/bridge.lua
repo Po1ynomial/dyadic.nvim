@@ -129,4 +129,6 @@ M.handlers.result = function(agent, request, reply)
   reply(true)
 end
 
+require("dyadic.file_tools").register(M)
+
 return M
