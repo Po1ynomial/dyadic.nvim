@@ -22,10 +22,10 @@ CONTENTS                                                     *dyadic-contents*
 
 dyadic.nvim talks to pi (https://pi.dev) through pi's RPC mode
 (`pi --mode rpc`), and loads a small pi extension of its own, the bridge
-(|dyadic-bridge|), for what stock RPC lacks. An agent is one pi process with two buffers: the
-read-only history, which shows the messages of pi's current session, and the
-composer, where you write the next message with normal Neovim editing. There
-is no embedded terminal and no required UI library.
+(|dyadic-bridge|), for what stock RPC lacks. An agent is one pi process with
+two buffers: the read-only history, which shows the messages of pi's current
+session, and the composer, where you write the next message with normal
+Neovim editing. There is no embedded terminal and no required UI library.
 
 Requirements:
 - Neovim 0.11 or newer.
@@ -256,8 +256,8 @@ Composer:
   Key               Action             Behavior ~
   <CR>              `submit`             Submit; steer while pi is working
   <M-CR>            `follow_up`          Submit as a follow-up
-  <Esc>             `abort`              Return queued input, then abort (while
-                                       pi works; see |dyadic-double-escape|)
+  <Esc>             `abort`              Return queued input, then abort
+                                       (|dyadic-double-escape|)
   <M-Up>            `dequeue`            Return queued input to the draft
   <C-l>             `model`              Select a model
   <S-Tab>           `cycle_thinking`     Cycle thinking level
@@ -278,9 +278,9 @@ History:
   <localleader>i    `focus_composer`     Open the composer below this window
 
 Actions without a default key: `thinking`, `cycle_model`, `copy`, `new`,
-`resume`, `tree`, `fork`. Every action has a buffer-local <Plug> mapping named after it, for
-example `<Plug>(DyadicSubmit)`, `<Plug>(DyadicToggleGroup)`,
-`<Plug>(DyadicCopy)`.
+`resume`, `tree`, `fork`. Every action has a buffer-local <Plug> mapping
+named after it, for example `<Plug>(DyadicSubmit)`,
+`<Plug>(DyadicToggleGroup)`, `<Plug>(DyadicCopy)`.
 
 Override or disable defaults by action name:
 >lua
@@ -391,7 +391,9 @@ scrolling, and folds work as usual. Keys in the list:
 
 Change or disable them with `tree.keys`:
 >lua
-    require("dyadic").setup({ tree = { keys = { label = "L", copy = false } } })
+    require("dyadic").setup({
+      tree = { keys = { label = "L", copy = false } },
+    })
 <
 Typing in the search bar filters the list at once; every word must match.
 There, <CR> and <C-CR> go to the selected entry, <C-n>, <C-p>, <Down>, and
@@ -570,8 +572,9 @@ dyadic loads it into each agent with `-e` unless `bridge = false`. It adds
 only what pi offers to extensions and not to RPC clients; dyadic draws all
 of its UI in Neovim. Features that need it: `/reload`, moving or labeling in
 the tree picker (|dyadic-tree|), the editor-backed `read`, `edit`, and
-`write` tools (|dyadic-files|), and reviews (|dyadic-review|). The bridge registers its own `read`, `edit`,
-and `write`; another extension that replaces them wins if pi loads it later.
+`write` tools (|dyadic-files|), and reviews (|dyadic-review|). The bridge
+registers its own `read`, `edit`, and `write`; another extension that
+replaces them wins if pi loads it later.
 
 dyadic sends it commands as `/dyadic <name> [json]` prompts. The `/dyadic`
 command is hidden from completion and is not meant to be typed.
