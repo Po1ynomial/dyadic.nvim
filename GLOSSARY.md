@@ -83,3 +83,37 @@ _Avoid_: summary, block
 **Detail**:
 The full view of one activity.
 _Avoid_: preview, hover, popup
+
+**Entry**:
+One node of a session's tree, such as a message, a summary, or a setting change.
+_Avoid_: node, item, turn
+
+**Branch**:
+The entries from the root of a session's tree to one entry. The history shows the active branch, the one that ends at the current entry.
+_Avoid_: thread, path
+
+**Label**:
+A name the user gives to an entry.
+_Avoid_: bookmark, tag
+
+## Bridge
+
+**Bridge**:
+The pi extension that dyadic loads into each agent, through which pi's file tools and session commands reach the editor.
+_Avoid_: plugin, adapter, injected extension
+
+**Review**:
+The user's decision on a change an agent proposes to a file, made hunk by hunk in that file's buffer before the agent continues.
+_Avoid_: approval, diff preview, patch session
+
+**Hunk**:
+One contiguous changed region of a proposed change, accepted or rejected on its own.
+_Avoid_: block, chunk
+
+**Review rule**:
+A path with a review setting; the nearest rule above a file decides whether changes to it are reviewed.
+_Avoid_: scope, policy
+
+**Tree picker**:
+The float that shows a session's tree of entries and moves the agent to another entry in it.
+_Avoid_: tree view, tree selector, navigator
