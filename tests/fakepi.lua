@@ -1,7 +1,9 @@
 -- Scriptable stand-in for `pi --mode rpc`. Run as: nvim --clean -l tests/fakepi.lua [scenario.lua]
 -- A scenario file returns a table with optional `state`, `entries`, `commands`, `prompts`, `log`,
--- `bridge` (bridge command name -> { events = {...}, entries = {...} }), and `no_bridge`.
--- Like pi, the fake reports the bridge's `dyadic` command when dyadic loads it with `-e`.
+-- `leaf`, `labels` (entry id -> label), `bridge` (bridge command name -> { events = {...},
+-- outcome = {...} }), and `no_bridge`.
+-- Like pi, the fake reports the bridge's `dyadic` command when dyadic loads it with `-e`,
+-- and its `tree` and `label` commands move the leaf and set labels.
 -- Tests can also drive the fake at runtime through two extra commands:
 --   test_emit { events = {...} }        writes each record to stdout
 --   test_set  { state, entries, queue } replaces fake state
@@ -31,14 +33,50 @@ local state = vim.tbl_extend("force", {
   thinkingLevel = "off",
 }, scenario.state or {})
 local entries = vim.deepcopy(scenario.entries or {})
+local leaf = scenario.leaf or (entries[#entries] and entries[#entries].id)
+local labels = vim.deepcopy(scenario.labels or {})
 local queue = { steering = {}, followUp = {} }
 local next_id = 1000
 
 local function append(entry)
   next_id = next_id + 1
   entry.id = entry.id or ("e" .. next_id)
-  entry.parentId = entry.parentId or (entries[#entries] and entries[#entries].id or vim.NIL)
+  entry.parentId = entry.parentId or leaf or vim.NIL
   entries[#entries + 1] = entry
+  leaf = entry.id
+end
+
+local function find(id)
+  for _, entry in ipairs(entries) do
+    if entry.id == id then
+      return entry
+    end
+  end
+end
+
+local function tree()
+  local nodes, roots = {}, {}
+  for _, entry in ipairs(entries) do
+    nodes[entry.id] = { entry = entry, children = {}, label = labels[entry.id] }
+  end
+  for _, entry in ipairs(entries) do
+    local parent = entry.parentId ~= vim.NIL and nodes[entry.parentId] or nil
+    table.insert(parent and parent.children or roots, nodes[entry.id])
+  end
+  return roots
+end
+
+-- A bridge request, as the extension's call() sends it; dyadic's answer is not awaited.
+local bridge_requests = 0
+local function bridge_request(payload)
+  bridge_requests = bridge_requests + 1
+  out({
+    type = "extension_ui_request",
+    id = "bridge" .. bridge_requests,
+    method = "input",
+    title = "dyadic.bridge",
+    placeholder = vim.json.encode(payload),
+  })
 end
 
 local log = scenario.log and io.open(scenario.log, "a")
@@ -64,7 +102,9 @@ for line in io.stdin:lines() do
     data._env_nvim = os.getenv("NVIM") or vim.NIL
     ok(req, data)
   elseif t == "get_entries" then
-    ok(req, { entries = entries, leafId = entries[#entries] and entries[#entries].id or vim.NIL })
+    ok(req, { entries = entries, leafId = leaf or vim.NIL })
+  elseif t == "get_tree" then
+    ok(req, { tree = tree(), leafId = leaf or vim.NIL })
   elseif t == "get_session_stats" then
     ok(req, { tokens = { total = 0 }, cost = 0 })
   elseif t == "get_commands" then
@@ -76,13 +116,28 @@ for line in io.stdin:lines() do
     queue = { steering = {}, followUp = {} }
   elseif t == "prompt" and bridge and req.message:match("^/dyadic%s") then
     -- pi answers an extension command only after its handler returns.
-    local name = req.message:match("^/dyadic%s+(%S+)")
+    local name, json = req.message:match("^/dyadic%s+(%S+)%s*(.*)$")
+    local args = json ~= "" and vim.json.decode(json) or {}
     local script = (scenario.bridge or {})[name] or {}
     for _, event in ipairs(script.events or {}) do
       out(event)
     end
-    if script.entries then
-      entries = vim.deepcopy(script.entries)
+    local outcome = script.outcome
+    if name == "tree" and not outcome then
+      -- Like pi: a user message's parent becomes the leaf; any other entry becomes it.
+      local target = find(args.id)
+      if target and target.type == "message" and target.message.role == "user" then
+        leaf = target.parentId ~= vim.NIL and target.parentId or nil
+      else
+        leaf = args.id
+      end
+      outcome = { cancelled = false }
+    elseif name == "label" and not outcome then
+      labels[args.id] = args.label ~= "" and args.label or nil
+      outcome = {}
+    end
+    if outcome and args.token then
+      bridge_request({ kind = "result", token = args.token, outcome = outcome })
     end
     ok(req, { disposition = "handled" })
   elseif t == "prompt" then
@@ -135,6 +190,7 @@ for line in io.stdin:lines() do
     end
     if req.entries then
       entries = req.entries
+      leaf = req.leaf or (entries[#entries] and entries[#entries].id)
     end
     if req.queue then
       queue = req.queue

@@ -244,6 +244,7 @@ local function pieces_of(messages, ctx)
     }
   end
   for index, message in ipairs(messages) do
+    local first_piece = #pieces + 1
     local role_name = message.role
     local mkey = message_key(message, ctx.prefix .. index)
     if role_name == "user" then
@@ -346,6 +347,11 @@ local function pieces_of(messages, ctx)
       speaker(role_name or "Message", "DyadicSpeaker")
       add_text(text.content_text(message.content))
     end
+    -- Remember which session entry each piece shows, for actions at the cursor.
+    for i = first_piece, #pieces do
+      local target = pieces[i].item or pieces[i]
+      target.entry = target.entry or message._entry_id
+    end
   end
   -- Tools pi reports before their call reaches the message list.
   if ctx.live then
@@ -399,10 +405,16 @@ end
 
 -- Render grouped pieces into relative lines and rows, one blank line between blocks.
 local function emit(grouped, expanded)
-  local lines, rows, items, groups, speakers = {}, {}, {}, {}, {}
+  local lines, rows, items, groups, speakers, marks = {}, {}, {}, {}, {}, {}
   local function block()
     if #lines > 0 then
       lines[#lines + 1] = ""
+    end
+  end
+  -- Marks: the session entry shown from a line on, ascending by line.
+  local function mark(entry)
+    if entry then
+      marks[#marks + 1] = { line = #lines, entry = entry }
     end
   end
   local function row(entry)
@@ -412,6 +424,7 @@ local function emit(grouped, expanded)
   end
   for _, piece in ipairs(grouped) do
     block()
+    mark(piece.entry or (piece.items and piece.items[1].entry))
     if piece.type == "speaker" then
       speakers[#speakers + 1] = #lines
       row({ kind = "speaker", chunks = piece.chunks, right = piece.right })
@@ -427,6 +440,7 @@ local function emit(grouped, expanded)
       for _, item in ipairs(piece.items) do
         items[item.key] = item
         if open then
+          mark(item.entry)
           row({ kind = "item", key = item.key, group = piece.key, chunks = item_chunks(item) })
         end
       end
@@ -437,7 +451,7 @@ local function emit(grouped, expanded)
       row({ kind = piece.kind, key = piece.key, chunks = piece.chunks })
     end
   end
-  return { lines = lines, rows = rows, items = items, groups = groups, speakers = speakers }
+  return { lines = lines, rows = rows, items = items, groups = groups, speakers = speakers, marks = marks }
 end
 
 local function render_run(messages, ctx, expanded)
@@ -490,7 +504,7 @@ function M.build(agent, opts)
   end
   local expanded = agent.expanded or {}
   local old_cache, new_cache = agent._render_cache or {}, {}
-  local model = { lines = {}, rows = {}, items = {}, groups = {}, speakers = {} }
+  local model = { lines = {}, rows = {}, items = {}, groups = {}, speakers = {}, marks = {} }
   local function append(part)
     if #part.lines == 0 then
       return
@@ -508,6 +522,9 @@ function M.build(agent, opts)
     end
     for _, line in ipairs(part.speakers or {}) do
       model.speakers[#model.speakers + 1] = line + offset
+    end
+    for _, item in ipairs(part.marks or {}) do
+      model.marks[#model.marks + 1] = { line = item.line + offset, entry = item.entry }
     end
     for key, item in pairs(part.items or {}) do
       model.items[key] = item

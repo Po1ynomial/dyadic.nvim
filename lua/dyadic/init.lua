@@ -9,6 +9,8 @@ local defaults = {
   statusline = true,
   completion = true,
   mappings = {},
+  double_escape = "tree",
+  tree = { keys = {} },
 }
 local config = vim.deepcopy(defaults)
 local agents, next_id, last = {}, 0, nil
@@ -34,6 +36,11 @@ function M.setup(opts)
   vim.validate("statusline", config.statusline, "boolean")
   vim.validate("completion", config.completion, "boolean")
   vim.validate("mappings", config.mappings, "table")
+  vim.validate("double_escape", config.double_escape, function(value)
+    return value == "tree" or value == "fork" or value == "none"
+  end, '"tree", "fork", or "none"')
+  vim.validate("tree", config.tree, "table")
+  vim.validate("tree.keys", config.tree.keys, "table")
   assert(#config.cmd > 0, "dyadic: cmd must not be empty")
   assert(
     config.composer.min_height >= 1 and config.composer.max_height > 0,

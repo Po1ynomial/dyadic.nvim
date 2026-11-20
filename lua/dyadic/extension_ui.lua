@@ -210,6 +210,11 @@ function M.handle(agent, record)
   if not agent._view then
     return
   end
+  local Bridge = require("dyadic.bridge")
+  if Bridge.is_request(record) then
+    Bridge.handle(agent, record)
+    return
+  end
   local method = record.method
   if method == "notify" then
     agent:notice(clean(record.message), record.notifyType or "info")

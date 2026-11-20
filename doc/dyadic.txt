@@ -52,6 +52,8 @@ Setup is optional. Defaults:
       statusline = true,
       completion = true,
       mappings = {},
+      double_escape = "tree",
+      tree = { keys = {} },
     })
 <
 `cmd`           Executable argv array. dyadic appends `--mode rpc`; do not
@@ -73,6 +75,9 @@ Setup is optional. Defaults:
                 statusline of dyadic's windows. Set to `false` to keep yours.
 `completion`    Set the composer's 'omnifunc' (see |dyadic-completion|).
 `mappings`      Override or disable default keys (see |dyadic-mappings|).
+`double_escape` What <Esc><Esc> does while idle: `"tree"`, `"fork"`, or
+                `"none"` (see |dyadic-double-escape|).
+`tree`          Tree picker keys (see |dyadic-tree|).
 
 Configuration applies to agents opened afterwards. Each agent captures
 Neovim's effective cwd when it opens, including window- or tab-local cwd,
@@ -248,7 +253,8 @@ Composer:
   Key               Action             Behavior ~
   <CR>              `submit`             Submit; steer while pi is working
   <M-CR>            `follow_up`          Submit as a follow-up
-  <Esc>             `abort`              Return queued input, then abort
+  <Esc>             `abort`              Return queued input, then abort (while
+                                       pi works; see |dyadic-double-escape|)
   <M-Up>            `dequeue`            Return queued input to the draft
   <C-l>             `model`              Select a model
   <S-Tab>           `cycle_thinking`     Cycle thinking level
@@ -269,7 +275,7 @@ History:
   <localleader>i    `focus_composer`     Open the composer below this window
 
 Actions without a default key: `thinking`, `cycle_model`, `copy`, `new`,
-`resume`. Every action has a buffer-local <Plug> mapping named after it, for
+`resume`, `tree`, `fork`. Every action has a buffer-local <Plug> mapping named after it, for
 example `<Plug>(DyadicSubmit)`, `<Plug>(DyadicToggleGroup)`,
 `<Plug>(DyadicCopy)`.
 
@@ -283,6 +289,15 @@ Override or disable defaults by action name:
       },
     })
 <
+                                                       *dyadic-double-escape*
+As in pi, pressing <Esc> twice in Normal mode while the agent is idle runs
+the `double_escape` action: `"tree"` (the default) opens the tree picker,
+`"fork"` the fork picker, and `"none"` turns this off. In the composer it
+runs only with an empty draft. The maps follow the agent: while it works, a
+single <Esc> in the composer aborts and <Esc><Esc> does nothing; while it is
+idle, <Esc><Esc> is mapped and a single <Esc> waits 'timeoutlen' for the
+second. With `double_escape = "none"`, <Esc> always aborts.
+
 Critical native keys such as CTRL-O, CTRL-T, CTRL-D, CTRL-W, and CTRL-X are
 not replaced. Terminal support for modified Enter and Tab varies; remap those
 actions when needed.
@@ -307,6 +322,9 @@ Type these in the composer and submit:
   `/name [name]`                       Set or show the session name
   `/session`, `/stats`                   Show identity, file, usage, context
   `/compact [instructions]`            Compact through pi
+  `/tree`                              Move within the session tree with
+                                     the tree picker (bridge, see
+                                     |dyadic-tree|)
   `/fork [entry-id]`                   Fork from a user message and restore
                                      its text to the draft
   `/clone`                             Clone the active branch
@@ -329,9 +347,64 @@ forwarded to pi. Input submitted during compaction is queued locally and sent
 when compaction finishes. Abort returns pi's queues and that local queue to
 the draft without discarding newer unsent text.
 
-TUI-only commands are rejected locally instead of becoming prompts: tree
-navigation, login and logout, scoped models, share and bug
+TUI-only commands are rejected locally instead of becoming prompts: login
+and logout, scoped models, share and bug
 workflows, trust management, and `/hotkeys` (use `:nmap <buffer>`).
+
+Tree picker                                                     *dyadic-tree*
+
+`/tree`, `:Dyadic tree`, the `tree` action, or <Esc><Esc> while idle
+(|dyadic-double-escape|) open a float with the session's tree of entries, as
+pi's own `/tree` shows it: the active branch is marked `•`, labels show in
+brackets, and branches hang off `├─` and `└─`. Opened from the history, the
+cursor starts on the entry under the history's cursor, otherwise on the
+current entry. It needs the bridge and an idle agent.
+
+Each row is one entry; the cursor line is the selection, so Neovim's motions,
+scrolling, and folds work as usual. Keys in the list:
+
+  Key       Name                        Action ~
+  <CR>      `navigate`                    Go to the entry, asking whether to
+                                        summarize the branch you leave
+  <C-CR>    `navigate_without_summary`    Go to the entry without a summary
+  /         `search`                      Focus the search bar
+  <Esc>     `cancel`                      Clear the search, else close
+  q         `close`                       Close
+  h         `fold_or_up`                  Fold the row, else go to the
+                                        previous branch segment
+  l         `unfold_or_down`              Unfold the row, else go to the
+                                        next branch segment
+  d         `filter_default`              Default view
+  t         `filter_no_tools`             Toggle: no tool results
+  u         `filter_user_only`            Toggle: your messages only
+  '         `filter_labeled_only`         Toggle: labeled entries only
+  a         `filter_all`                  Toggle: every entry
+  <Tab>     `filter_next`                 Next filter
+  <S-Tab>   `filter_prev`                 Previous filter
+  m         `label`                       Set or clear the entry's label
+  T         `label_time`                  Show or hide label times
+  yy        `copy`                        Copy the entry's full text to
+                                        |v:register|
+
+Change or disable them with `tree.keys`:
+>lua
+    require("dyadic").setup({ tree = { keys = { label = "L", copy = false } } })
+<
+Typing in the search bar filters the list at once; every word must match.
+There, <CR> and <C-CR> go to the selected entry, <C-n>, <C-p>, <Down>, and
+<Up> move the selection, and <Esc> returns to the list with the search kept.
+A root or the first entry of a branch can fold; folds are Neovim's manual
+folds, so |za|, |zo|, |zc|, |zR|, and |zM| work too. Changing the filter or
+the search opens all folds, as in pi. <C-CR> reaches Neovim only in
+terminals that send modified keys, such as kitty, Ghostty, WezTerm, foot,
+and tmux with `extended-keys`.
+
+Going to an entry asks whether to summarize the branch you leave: no
+summary, a summary, or a summary with instructions you type. While pi
+summarizes, the composer shows `summarizing branch` and <Esc> there cancels,
+which returns to the picker. Going to one of your messages moves to the
+entry before it and adds its text to the draft; any other entry becomes the
+current one. Leaving the picker's windows closes it.
 
 The resume picker honors `--session-dir`, `PI_CODING_AGENT_SESSION_DIR`,
 project and user `sessionDir`, and `PI_CODING_AGENT_DIR`; an active session's
@@ -421,7 +494,8 @@ Bridge                                                        *dyadic-bridge*
 The bridge is dyadic's own pi extension, `pi/dyadic.ts` in this plugin.
 dyadic loads it into each agent with `-e` unless `bridge = false`. It adds
 only what pi offers to extensions and not to RPC clients; dyadic draws all
-of its UI in Neovim. Features that need it: `/reload`.
+of its UI in Neovim. Features that need it: `/reload` and moving or labeling
+in the tree picker (|dyadic-tree|).
 
 dyadic sends it commands as `/dyadic <name> [json]` prompts. The `/dyadic`
 command is hidden from completion and is not meant to be typed.
@@ -456,5 +530,8 @@ override them.
   DyadicPhase             The agent's phase             Comment
   DyadicFooter            The footer                    Comment
   DyadicWarn              Context use above 70%         DiagnosticWarn
+  DyadicTreeLine          Tree picker connectors        Comment
+  DyadicTreeActive        Active branch, fold marks     Identifier
+  DyadicTreeLabel         Labels in the tree picker     DiagnosticWarn
 
  vim:tw=78:ts=8:ft=help:norl:

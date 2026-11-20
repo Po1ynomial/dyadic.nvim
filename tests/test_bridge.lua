@@ -63,7 +63,7 @@ T("/reload runs the bridge command and refreshes", function()
     return refreshed
   end, 3000, "refresh after reload")
   eq(agent:get_draft(), "")
-  eq(prompts(log), { "/dyadic reload" })
+  eq(prompts(log), { '/dyadic reload {"token":"1"}' })
   ok(messages()[1]:find("Reloaded", 1, true))
 end)
 

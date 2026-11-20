@@ -38,6 +38,9 @@ local function define_highlights()
     DyadicSpinner = "DiagnosticInfo",
     DyadicPhase = "Comment",
     DyadicWarn = "DiagnosticWarn",
+    DyadicTreeLine = "Comment",
+    DyadicTreeActive = "Identifier",
+    DyadicTreeLabel = "DiagnosticWarn",
   }) do
     api.nvim_set_hl(0, name, { link = link, default = true })
   end
@@ -127,6 +130,8 @@ local actions = {
   settings = { "Settings", "<localleader>s", "composer" },
   new = { "New", nil, "composer" },
   resume = { "Resume", nil, "composer" },
+  tree = { "Tree", nil, "both" },
+  fork = { "Fork", nil, "both" },
   focus_composer = { "FocusComposer", "<localleader>i", "both" },
   focus_history = { "FocusHistory", "<localleader>r", "composer" },
   toggle_group = { "ToggleGroup", "za", "history" },
@@ -185,6 +190,23 @@ function M.focus(agent, composer)
   else
     api.nvim_set_current_win(win)
   end
+end
+
+-- The session entry shown at the cursor in the history, if the history is current.
+function M.entry_at_cursor(agent)
+  if api.nvim_get_current_buf() ~= agent.history_buf or not agent._view.model then
+    return nil
+  end
+  local line = api.nvim_win_get_cursor(0)[1] - 1
+  local found
+  for _, mark in ipairs(agent._view.model.marks or {}) do
+    if mark.line > line then
+      break
+    end
+    found = mark.entry
+  end
+  -- Usage rows belong to the entry that billed them.
+  return found and (found:gsub(":usage$", "")) or nil
 end
 
 local function row_at_cursor(agent)
@@ -701,10 +723,53 @@ local function write(agent, model, previous)
   end
 end
 
+-- Double Esc, as in pi: while the agent is idle, <Esc><Esc> runs the `double_escape` action
+-- (from the composer only with an empty draft); while it works, the composer's <Esc> aborts.
+-- The maps are swapped when work starts and ends, so an abort never waits for 'timeoutlen'.
+local function sync_escape(agent)
+  local action = agent.config.double_escape or "tree"
+  local working = agent.active == true
+  if action == "none" or agent._view.escape_working == working then
+    return
+  end
+  agent._view.escape_working = working
+  local abort_key = (agent.config.mappings or {}).abort
+  if abort_key == nil then
+    abort_key = actions.abort[2]
+  end
+  for _, buf in ipairs({ agent.history_buf, agent.composer_buf }) do
+    if valid_buf(buf) then
+      local composer = buf == agent.composer_buf
+      pcall(vim.keymap.del, "n", "<Esc><Esc>", { buffer = buf })
+      if composer and abort_key == "<Esc>" then
+        if working then
+          vim.keymap.set(
+            "n",
+            "<Esc>",
+            "<Plug>(DyadicAbort)",
+            { buffer = buf, remap = true, silent = true, desc = "Dyadic abort" }
+          )
+        else
+          pcall(vim.keymap.del, "n", "<Esc>", { buffer = buf })
+        end
+      end
+      if not working then
+        vim.keymap.set("n", "<Esc><Esc>", function()
+          if agent.closed or (composer and agent:get_draft():find("%S")) then
+            return
+          end
+          require("dyadic.commands").run(agent, "/" .. action)
+        end, { buffer = buf, silent = true, desc = "Dyadic " .. action })
+      end
+    end
+  end
+end
+
 function M.render(agent, opts)
   if agent.closed or not agent._view or agent._view.disposed or not valid_buf(agent.history_buf) then
     return
   end
+  sync_escape(agent)
   if valid_buf(agent.composer_buf) and #vim.fn.win_findbuf(agent.composer_buf) > 0 then
     render_widgets(agent)
     statuslines(agent)

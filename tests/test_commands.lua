@@ -21,10 +21,10 @@ end)
 
 T("unsupported TUI commands are rejected locally", function()
   local agent = H.open()
-  agent:set_draft("/tree")
+  agent:set_draft("/login")
   agent:submit()
   H.settle()
-  eq(agent:get_draft(), "/tree")
+  eq(agent:get_draft(), "/login")
   eq(#agent.messages, 0)
 end)
 

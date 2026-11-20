@@ -12,6 +12,7 @@ M.names = {
   "session",
   "stats",
   "compact",
+  "tree",
   "fork",
   "clone",
   "export",
@@ -22,7 +23,6 @@ M.names = {
 }
 
 local unsupported = {
-  tree = true,
   login = true,
   logout = true,
   ["scoped-models"] = true,
@@ -599,6 +599,16 @@ function M.run(agent, text)
           agent:notice("Exported HTML: " .. tostring(data.path), "info")
         end
       )
+    end
+  elseif name == "tree" then
+    if argument ~= "" then
+      agent:notice("Usage: /tree", "error")
+    else
+      -- From the history, the picker starts at the entry under the cursor.
+      local initial = require("dyadic.view").entry_at_cursor(agent)
+      if require("dyadic.tree_picker").open(agent, { initial = initial }) then
+        consume(agent, text)
+      end
     end
   elseif name == "reload" then
     if agent.active then
