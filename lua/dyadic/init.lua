@@ -2,6 +2,7 @@ local M = {}
 local defaults = {
   cmd = { "pi" },
   args = {},
+  bridge = true,
   placement = "sidebar",
   sidebar = { side = "right", width = 0.35, min_width = 40, max_width = 120 },
   composer = { min_height = 3, max_height = 0.4 },
@@ -16,6 +17,7 @@ function M.setup(opts)
   config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})
   vim.validate("cmd", config.cmd, "table")
   vim.validate("args", config.args, "table")
+  vim.validate("bridge", config.bridge, "boolean")
   vim.validate("placement", config.placement, function(value)
     return value == "sidebar" or value == "free"
   end, '"sidebar" or "free"')

@@ -3,6 +3,7 @@ local Commands = require("dyadic.commands")
 local Entries = require("dyadic.entries")
 local ExtensionUI = require("dyadic.extension_ui")
 local QuitGuard = require("dyadic.quit_guard")
+local Bridge = require("dyadic.bridge")
 local Agent = {}
 Agent.__index = Agent
 
@@ -33,6 +34,7 @@ function Agent.new(id, config, on_close)
   View.new(self)
   local cmd = vim.deepcopy(config.cmd)
   vim.list_extend(cmd, { "--mode", "rpc" })
+  vim.list_extend(cmd, Bridge.args(config))
   vim.list_extend(cmd, config.args)
   local rpc, err = require("dyadic.rpc").new({
     cmd = cmd,
@@ -268,6 +270,7 @@ function Agent:refresh(callback)
           end
           if not commands_err then
             self.commands = data.commands or {}
+            Bridge.check(self)
           end
           self:render()
           if callback then

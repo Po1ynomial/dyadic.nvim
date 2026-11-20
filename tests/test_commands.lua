@@ -5,7 +5,7 @@ local Commands = require("dyadic.commands")
 
 T("completes slash commands at the line start", function()
   local agent = H.open({ commands = { { name = "skill:review", source = "skill" } } })
-  eq(Commands.complete(agent, "/re"), { "/resume" })
+  eq(Commands.complete(agent, "/re"), { "/reload", "/resume" })
   eq(Commands.complete(agent, "/sk"), { "/skill:review" })
 end)
 

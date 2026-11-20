@@ -3,7 +3,7 @@ local H = dofile("tests/helpers.lua")
 local ok = H.ok
 local T = H.suite()
 
-T("starts, reports stats, and closes without leaving a process", function()
+T("starts with the bridge, reports stats, reloads, and closes without leaving a process", function()
   if vim.env.DYADIC_REAL_PI ~= "1" then
     H.skip("set DYADIC_REAL_PI=1 to run against the real pi")
   end
@@ -19,6 +19,18 @@ T("starts, reports stats, and closes without leaving a process", function()
     return #_G.notes > 0
   end, 5000, "session stats")
   ok(_G.notes[1].msg:match("^Dyadic: Session: "), _G.notes[1].msg)
+  H.wait(function()
+    return require("dyadic.bridge").available(agent)
+  end, 5000, "the bridge to load")
+  agent:set_draft("/reload")
+  agent:submit()
+  H.wait(function()
+    return #_G.notes > 1
+  end, 15000, "reload")
+  ok(_G.notes[2].msg:match("^Dyadic: Reloaded"), _G.notes[2].msg)
+  H.wait(function()
+    return require("dyadic.bridge").available(agent)
+  end, 5000, "the bridge after reload")
   local pid = agent.rpc.pid
   agent:close()
   H.wait(function()

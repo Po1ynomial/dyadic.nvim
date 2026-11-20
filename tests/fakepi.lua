@@ -1,5 +1,7 @@
 -- Scriptable stand-in for `pi --mode rpc`. Run as: nvim --clean -l tests/fakepi.lua [scenario.lua]
--- A scenario file returns a table with optional `state`, `entries`, `commands`, `prompts`, and `log`.
+-- A scenario file returns a table with optional `state`, `entries`, `commands`, `prompts`, `log`,
+-- `bridge` (bridge command name -> { events = {...}, entries = {...} }), and `no_bridge`.
+-- Like pi, the fake reports the bridge's `dyadic` command when dyadic loads it with `-e`.
 -- Tests can also drive the fake at runtime through two extra commands:
 --   test_emit { events = {...} }        writes each record to stdout
 --   test_set  { state, entries, queue } replaces fake state
@@ -41,6 +43,15 @@ end
 
 local log = scenario.log and io.open(scenario.log, "a")
 
+local commands = vim.deepcopy(scenario.commands or {})
+local bridge = false
+for index, value in ipairs(_G.arg) do
+  if value == "-e" and (_G.arg[index + 1] or ""):match("pi/dyadic%.ts$") and not scenario.no_bridge then
+    bridge = true
+    commands[#commands + 1] = { name = "dyadic", source = "extension", description = "bridge" }
+  end
+end
+
 for line in io.stdin:lines() do
   local req = vim.json.decode(line)
   if log then
@@ -57,12 +68,23 @@ for line in io.stdin:lines() do
   elseif t == "get_session_stats" then
     ok(req, { tokens = { total = 0 }, cost = 0 })
   elseif t == "get_commands" then
-    ok(req, { commands = scenario.commands or {} })
+    ok(req, { commands = commands })
   elseif t == "get_available_thinking_levels" then
     ok(req, { levels = { "off", "low", "high" } })
   elseif t == "clear_queue" then
     ok(req, queue)
     queue = { steering = {}, followUp = {} }
+  elseif t == "prompt" and bridge and req.message:match("^/dyadic%s") then
+    -- pi answers an extension command only after its handler returns.
+    local name = req.message:match("^/dyadic%s+(%S+)")
+    local script = (scenario.bridge or {})[name] or {}
+    for _, event in ipairs(script.events or {}) do
+      out(event)
+    end
+    if script.entries then
+      entries = vim.deepcopy(script.entries)
+    end
+    ok(req, { disposition = "handled" })
   elseif t == "prompt" then
     local script = (scenario.prompts or {})[req.message]
     ok(req, { disposition = "started" })

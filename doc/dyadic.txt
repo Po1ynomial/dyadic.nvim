@@ -20,8 +20,9 @@ CONTENTS                                                     *dyadic-contents*
 ==============================================================================
 1. INTRODUCTION                                                 *dyadic-intro*
 
-dyadic.nvim talks to pi (https://pi.dev) through pi's stock RPC mode
-(`pi --mode rpc`). An agent is one pi process with two buffers: the
+dyadic.nvim talks to pi (https://pi.dev) through pi's RPC mode
+(`pi --mode rpc`), and loads a small pi extension of its own, the bridge
+(|dyadic-bridge|), for what stock RPC lacks. An agent is one pi process with two buffers: the
 read-only history, which shows the messages of pi's current session, and the
 composer, where you write the next message with normal Neovim editing. There
 is no embedded terminal and no required UI library.
@@ -29,6 +30,7 @@ is no embedded terminal and no required UI library.
 Requirements:
 - Neovim 0.11 or newer.
 - `pi` on $PATH, with provider authentication and pi configuration set up.
+  The bridge needs pi 1.5.2 or newer.
 
 ==============================================================================
 2. SETUP                                                        *dyadic-setup*
@@ -38,6 +40,7 @@ Setup is optional. Defaults:
     require("dyadic").setup({
       cmd = { "pi" },
       args = {},
+      bridge = true,
       placement = "sidebar",
       sidebar = {
         side = "right",
@@ -56,6 +59,9 @@ Setup is optional. Defaults:
 `args`          Ordinary pi startup options, such as `--model` or
                 `--session-dir`. Pi still loads its own configuration,
                 tools, extensions, skills, and templates.
+`bridge`        Load dyadic's pi extension (|dyadic-bridge|). With `false`,
+                pi runs stock and the features that need the bridge are
+                unavailable.
 `placement`     Where the history window goes: `"sidebar"` or `"free"`
                 (see |dyadic-windows|).
 `sidebar`       Side of the tab, starting width as a share of the editor,
@@ -308,6 +314,8 @@ Type these in the composer and submit:
   `/copy`                              Copy the last assistant response
   `/settings [name] [value]`           Auto-compaction, auto-retry, steering
                                      mode, or follow-up mode
+  `/reload`                            Reload pi's extensions, skills,
+                                     prompts, and context files (bridge)
   `/quit`                              Close this agent
   `!command`                           Run a shell command; its output joins
                                      pi's context
@@ -322,7 +330,7 @@ when compaction finishes. Abort returns pi's queues and that local queue to
 the draft without discarding newer unsent text.
 
 TUI-only commands are rejected locally instead of becoming prompts: tree
-navigation, login and logout, reload, scoped models, share and bug
+navigation, login and logout, scoped models, share and bug
 workflows, trust management, and `/hotkeys` (use `:nmap <buffer>`).
 
 The resume picker honors `--session-dir`, `PI_CODING_AGENT_SESSION_DIR`,
@@ -403,10 +411,25 @@ Extension UI requests use native equivalents:
 Dialogs are shown one at a time. RPC timeouts and closing an agent cancel
 pending dialogs, and a late answer never sends a second response.
 
-dyadic currently uses only stock RPC. JSONL export, deleting or renaming
+JSONL export, deleting or renaming
 saved sessions in the picker, custom extension renderers, terminal images,
 custom editor components, and terminal theme controls are not available.
 Images in messages are shown as text placeholders.
+
+Bridge                                                        *dyadic-bridge*
+
+The bridge is dyadic's own pi extension, `pi/dyadic.ts` in this plugin.
+dyadic loads it into each agent with `-e` unless `bridge = false`. It adds
+only what pi offers to extensions and not to RPC clients; dyadic draws all
+of its UI in Neovim. Features that need it: `/reload`.
+
+dyadic sends it commands as `/dyadic <name> [json]` prompts. The `/dyadic`
+command is hidden from completion and is not meant to be typed.
+
+When the bridge is requested but pi does not report it, for example with an
+older pi or a load error, dyadic warns once and the features above are
+unavailable; everything else works as with stock pi. The warning names
+pi's stderr log when pi wrote one, which holds its load errors.
 
 ==============================================================================
 13. HIGHLIGHTS                                             *dyadic-highlights*

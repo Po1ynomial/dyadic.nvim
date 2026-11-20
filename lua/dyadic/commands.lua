@@ -1,4 +1,5 @@
 local M = {}
+local Bridge = require("dyadic.bridge")
 local uv = vim.uv
 local windows = vim.fn.has("win32") == 1
 
@@ -16,6 +17,7 @@ M.names = {
   "export",
   "copy",
   "settings",
+  "reload",
   "quit",
 }
 
@@ -23,7 +25,6 @@ local unsupported = {
   tree = true,
   login = true,
   logout = true,
-  reload = true,
   ["scoped-models"] = true,
   share = true,
   bug = true,
@@ -599,6 +600,18 @@ function M.run(agent, text)
         end
       )
     end
+  elseif name == "reload" then
+    if agent.active then
+      agent:notice("Wait for the agent to finish before /reload", "warning")
+    else
+      Bridge.run(agent, "reload", nil, "/reload", function(err)
+        if not err and alive(agent) then
+          consume(agent, text)
+          agent:notice("Reloaded extensions, skills, prompts, and context files")
+          agent:refresh()
+        end
+      end)
+    end
   elseif name == "quit" then
     agent:close()
   else
@@ -641,7 +654,7 @@ function M.complete(agent, prefix)
     end
     for _, command in ipairs(agent.commands or {}) do
       local name = type(command) == "table" and command.name or command
-      if type(name) == "string" then
+      if type(name) == "string" and name ~= Bridge.command_name then
         add(name:sub(1, 1) == "/" and name or "/" .. name)
       end
     end
