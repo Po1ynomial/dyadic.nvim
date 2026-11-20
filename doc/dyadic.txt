@@ -54,6 +54,7 @@ Setup is optional. Defaults:
       mappings = {},
       double_escape = "tree",
       tree = { keys = {} },
+      review = false,
     })
 <
 `cmd`           Executable argv array. dyadic appends `--mode rpc`; do not
@@ -78,6 +79,8 @@ Setup is optional. Defaults:
 `double_escape` What <Esc><Esc> does while idle: `"tree"`, `"fork"`, or
                 `"none"` (see |dyadic-double-escape|).
 `tree`          Tree picker keys (see |dyadic-tree|).
+`review`        Which files' changes you review before they land, and the
+                review keys (see |dyadic-review|).
 
 Configuration applies to agents opened afterwards. Each agent captures
 Neovim's effective cwd when it opens, including window- or tab-local cwd,
@@ -423,6 +426,12 @@ time. dyadic keeps no database of its own.
 :Dyadic agents          Choose among live agents.
 :Dyadic composer        Focus the composer, opening it if needed.
 :Dyadic {action}        `submit`, `follow_up`, `dequeue`, `abort`, `close`.
+:Dyadic review          Show the next undecided hunk (|dyadic-review|).
+:Dyadic review {on|off|auto}
+                        Review every file, none, or follow the rules, for
+                        this agent.
+:Dyadic review {accept|reject} [all]
+                        Decide the hunk at the cursor, or all of them.
 :Dyadic {command}       Any pi command name from |dyadic-pi-commands|, such
                         as `model` or `resume`, without touching the draft.
 
@@ -469,8 +478,60 @@ through the editor; pi keeps its own matching, results, and rendering:
   such as formatters run and your own unsaved changes are saved too. The
   change lands hunk by hunk, so marks and folds on other lines stay, and one
   |u| undoes it. A file without a buffer is written to disk as by stock pi.
+  This applies when the change is not reviewed (below).
 
-The model is told this once, in the tools' guidelines; results stay pi's.
+The model is told this once, in the tools' guidelines; results stay pi's,
+except for what a review decided.
+
+Review                                                        *dyadic-review*
+
+With review on for a file, an agent's `edit` or `write` opens the file in a
+listed buffer if needed, without changing any window, and applies the change
+there as ordinary edits. Each hunk is highlighted, removed lines show above
+it, and the tool call waits until you have decided every hunk. Reviewed
+changes are never saved; save when you are ready. Commands that read from
+disk, such as tests, do not see them until then, and the model knows this.
+
+The composer's bar shows `review: N hunks` while hunks are undecided, and
+`:Dyadic review` shows the next one. In the reviewed buffer:
+
+  Key   Name            Action ~
+  ]c    `next`            Next undecided hunk
+  [c    `prev`            Previous undecided hunk
+  ga    `accept`          Accept the hunk at the cursor
+  gs    `reject`          Reject it; its old lines come back
+  gS    `reject_reason`   Reject it with a reason, which asks the model
+                        for a revision
+  gA    `accept_all`      Accept every undecided hunk
+
+The keys exist only while the review is open; a buffer-local mapping of your
+own on the same key comes back afterwards. Change or disable them with
+`review.keys`. Editing inside an undecided hunk accepts it with your changes.
+After your decisions the model learns what landed: the whole change, which
+hunks you rejected and why, and whether you also edited the file. Rejecting
+all of a new file's content leaves no buffer behind. When the run is aborted
+during a review, accepted hunks stay and the rest are reverted.
+
+One review per buffer runs at a time; another agent's change to the same
+buffer waits, and fails when the buffer changed meanwhile, so the model
+reads it again.
+
+Whether a file is reviewed:
+>lua
+    require("dyadic").setup({ review = true })    -- every file
+    require("dyadic").setup({
+      review = {
+        default = false,
+        paths = { ["~/work"] = true, ["~/work/scratch"] = false },
+        keys = { reject_reason = "gR" },
+      },
+    })
+<
+The nearest rule above a file wins, matching whole path components after
+`~` expansion and symlink resolution; relative rule paths are relative to
+the agent's cwd. Without a matching rule, `default` decides. For one agent,
+`:Dyadic review on` or `:Dyadic review off` overrides the rules until
+`:Dyadic review auto`.
 
 Other tools, such as `bash`, work on the disk. After a tool other than
 `read`, `grep`, `find`, or `ls` finishes, dyadic runs |:checktime| on every
@@ -508,8 +569,8 @@ The bridge is dyadic's own pi extension, `pi/dyadic.ts` in this plugin.
 dyadic loads it into each agent with `-e` unless `bridge = false`. It adds
 only what pi offers to extensions and not to RPC clients; dyadic draws all
 of its UI in Neovim. Features that need it: `/reload`, moving or labeling in
-the tree picker (|dyadic-tree|), and the editor-backed `read`, `edit`, and
-`write` tools (|dyadic-files|). The bridge registers its own `read`, `edit`,
+the tree picker (|dyadic-tree|), the editor-backed `read`, `edit`, and
+`write` tools (|dyadic-files|), and reviews (|dyadic-review|). The bridge registers its own `read`, `edit`,
 and `write`; another extension that replaces them wins if pi loads it later.
 
 dyadic sends it commands as `/dyadic <name> [json]` prompts. The `/dyadic`
@@ -548,5 +609,8 @@ override them.
   DyadicTreeLine          Tree picker connectors        Comment
   DyadicTreeActive        Active branch, fold marks     Identifier
   DyadicTreeLabel         Labels in the tree picker     DiagnosticWarn
+  DyadicReviewAdd         Lines a reviewed change adds  DiffAdd
+  DyadicReviewDelete      Lines it removes              DiffDelete
+  DyadicReviewHint        Hunk numbers and keys         Comment
 
  vim:tw=78:ts=8:ft=help:norl:

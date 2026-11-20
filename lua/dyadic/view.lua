@@ -41,6 +41,9 @@ local function define_highlights()
     DyadicTreeLine = "Comment",
     DyadicTreeActive = "Identifier",
     DyadicTreeLabel = "DiagnosticWarn",
+    DyadicReviewAdd = "DiffAdd",
+    DyadicReviewDelete = "DiffDelete",
+    DyadicReviewHint = "Comment",
   }) do
     api.nvim_set_hl(0, name, { link = link, default = true })
   end

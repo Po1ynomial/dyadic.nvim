@@ -1,6 +1,7 @@
 -- Text of the window bars, the composer's footer, and the statuslines.
 --   history winbar:  title, with pi's working directory right-aligned
---   composer winbar: spinner and phase, or "ready"; queued message counts right-aligned
+--   composer winbar: spinner and phase, or "ready"; undecided review hunks and queued
+--                    message counts right-aligned
 --   footer:          context use and cost; model and thinking level; extension statuses
 --   statusline:      which buffer this is and pi's session ID
 local M = {}
@@ -65,6 +66,11 @@ function M.composer_winbar(agent, frame)
   count("follow-up", queue.followUp)
   count("after compaction", agent.compaction_queue)
   local right = #counts > 0 and hl("DyadicQueue", table.concat(counts, " · ")) or ""
+  local hunks = require("dyadic.review").pending(agent)
+  if hunks > 0 then
+    local review = hl("DyadicWarn", "review: " .. hunks .. (hunks == 1 and " hunk" or " hunks"))
+    right = review .. (right ~= "" and hl("DyadicQueue", " · ") .. right or "")
+  end
   return " " .. left .. "%=" .. right .. " "
 end
 

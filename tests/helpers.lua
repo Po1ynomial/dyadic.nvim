@@ -159,7 +159,7 @@ end
 -- Send a bridge request as the extension would and return dyadic's decoded answer. The
 -- agent's scenario must log to `log`.
 local bridge_ids = 0
-function H.bridge(agent, log, payload)
+function H.bridge_send(agent, payload)
   bridge_ids = bridge_ids + 1
   local id = "test-bridge-" .. bridge_ids
   H.emit(agent, {
@@ -171,15 +171,24 @@ function H.bridge(agent, log, payload)
       placeholder = vim.json.encode(payload),
     },
   })
+  return id
+end
+
+-- dyadic's decoded answer to bridge request `id`, or nil while it has not answered.
+function H.bridge_answer(log, id)
+  for _, record in ipairs(H.sent(log)) do
+    if record.type == "extension_ui_response" and record.id == id then
+      return vim.json.decode(record.value)
+    end
+  end
+end
+
+function H.bridge(agent, log, payload)
+  local id = H.bridge_send(agent, payload)
   local answer
   H.wait(function()
-    for _, record in ipairs(H.sent(log)) do
-      if record.type == "extension_ui_response" and record.id == id then
-        answer = vim.json.decode(record.value)
-        return true
-      end
-    end
-    return false
+    answer = H.bridge_answer(log, id)
+    return answer ~= nil
   end, 3000, "the bridge answer")
   return answer
 end

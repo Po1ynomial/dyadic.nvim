@@ -4,6 +4,8 @@ A native Neovim client for [pi](https://pi.dev), using its RPC mode and a small 
 
 By default the agent lives in a sidebar: the history on top, the composer below it, both kept in place while you work in the rest of the tab. The history holds only message text, so it stays plain markdown; tool calls, thinking, and shell commands are overlay rows that collapse once the agent answers, and `K` opens any of them in a float. The composer shows the agent's phase, queued messages, context use, cost, and model around your draft. `/tree`, or `<Esc><Esc>` while the agent is idle, opens pi's session tree in a float to move between branches, with pi's filters, search, labels, and Neovim folds.
 
+The bridge also routes pi's `read`, `edit`, and `write` through your buffers: the agent reads unsaved text, and its changes land in open buffers as ordinary edits. With `review` on, every change waits in the file's buffer, hunk by hunk, until you accept or reject it, optionally with a reason for the agent.
+
 ## Requirements
 
 - Neovim 0.11 or newer.
@@ -18,6 +20,7 @@ require('dyadic').setup({
   cmd = { 'pi' },
   args = {}, -- pi startup options, such as { '--model', 'provider/id' }
   bridge = true, -- load dyadic's pi extension; false runs stock pi only
+  review = false, -- true, or { default = false, paths = { ['~/work'] = true } }
   placement = 'sidebar', -- or 'free'
   sidebar = { side = 'right', width = 0.35, min_width = 40, max_width = 120 },
   composer = { min_height = 3, max_height = 0.4 },
@@ -31,7 +34,7 @@ Run `:Dyadic` to show an agent. Write in the composer, then press Enter in Norma
 
 ## Documentation
 
-The full reference is in Neovim's help: `:help dyadic`. It covers windows and placements (`:help dyadic-windows`), the history and details (`:help dyadic-history`), the composer, mappings, pi commands, the Lua API, file reloading, the tree picker (`:help dyadic-tree`), the bridge (`:help dyadic-bridge`), and protocol limits. [GLOSSARY.md](GLOSSARY.md) defines the terms the code and docs use.
+The full reference is in Neovim's help: `:help dyadic`. It covers windows and placements (`:help dyadic-windows`), the history and details (`:help dyadic-history`), the composer, mappings, pi commands, the Lua API, file reloading, the tree picker (`:help dyadic-tree`), reviews (`:help dyadic-review`), the bridge (`:help dyadic-bridge`), and protocol limits. [GLOSSARY.md](GLOSSARY.md) defines the terms the code and docs use.
 
 ## Development
 

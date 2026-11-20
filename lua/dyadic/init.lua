@@ -11,6 +11,7 @@ local defaults = {
   mappings = {},
   double_escape = "tree",
   tree = { keys = {} },
+  review = false,
 }
 local config = vim.deepcopy(defaults)
 local agents, next_id, last = {}, 0, nil
@@ -41,6 +42,13 @@ function M.setup(opts)
   end, '"tree", "fork", or "none"')
   vim.validate("tree", config.tree, "table")
   vim.validate("tree.keys", config.tree.keys, "table")
+  vim.validate("review", config.review, { "boolean", "table" })
+  local review = config.review
+  if type(review) == "table" then
+    vim.validate("review.default", review.default, "boolean", true)
+    vim.validate("review.paths", review.paths, "table", true)
+    vim.validate("review.keys", review.keys, "table", true)
+  end
   assert(#config.cmd > 0, "dyadic: cmd must not be empty")
   assert(
     config.composer.min_height >= 1 and config.composer.max_height > 0,
@@ -191,7 +199,11 @@ function M.command(text)
     vim.notify("Dyadic: open an agent first with :Dyadic", vim.log.levels.WARN)
     return
   end
-  if text == "composer" then
+  local words = vim.split(text, "%s+", { trimempty = true })
+  if words[1] == "review" then
+    last = agent
+    require("dyadic.review").command(agent, vim.list_slice(words, 2))
+  elseif text == "composer" then
     last = agent
     require("dyadic.view").focus(agent, true)
   elseif text == "abort" or text == "close" or text == "submit" or text == "follow_up" or text == "dequeue" then
@@ -202,7 +214,7 @@ function M.command(text)
 end
 
 function M.complete(prefix)
-  local items = { "new", "toggle", "agents", "composer", "abort", "close", "submit", "follow_up", "dequeue" }
+  local items = { "new", "toggle", "agents", "composer", "abort", "close", "submit", "follow_up", "dequeue", "review" }
   vim.list_extend(items, require("dyadic.commands").names)
   local result, seen = {}, {}
   for _, item in ipairs(items) do

@@ -57,9 +57,23 @@ function M.lines(content)
   return vim.split(content, "\n", { plain = true }), eol
 end
 
+-- Load a file into a listed buffer without showing it; a missing file gets an empty buffer.
+function M.load(path)
+  local buf = M.buffer(path)
+  if buf then
+    return buf
+  end
+  buf = vim.fn.bufadd(path)
+  vim.fn.bufload(buf)
+  vim.bo[buf].buflisted = true
+  return buf
+end
+
 -- Change the buffer to `content` hunk by hunk, so untouched lines keep their marks, folds,
--- and diagnostics, and one undo reverts the whole change. Returns the hunks applied as
--- { start, count, lines } in final buffer lines (1-based start; count 0 for deletions).
+-- and diagnostics, and one undo reverts the whole change. Returns the hunks, top to
+-- bottom: `start`, `count`, `lines` in the final buffer (1-based; count 0 for a deletion,
+-- which sits before line `start`), and `old_start`, `old_count`, `old` in the original
+-- (for an insertion, `old_start` is the line it follows).
 function M.apply(buf, content)
   local old = api.nvim_buf_get_lines(buf, 0, -1, false)
   local new, eol = M.lines(content)
@@ -83,8 +97,16 @@ function M.apply(buf, content)
         pcall(vim.cmd.undojoin)
       end
       first = false
+      local old_lines = vim.list_slice(old, from + 1, from + count_a)
       api.nvim_buf_set_lines(buf, from, from + count_a, false, replacement)
-      table.insert(applied, 1, { start = start_b, count = count_b, lines = replacement })
+      table.insert(applied, 1, {
+        start = count_b == 0 and start_b + 1 or start_b,
+        count = count_b,
+        lines = replacement,
+        old_start = start_a,
+        old_count = count_a,
+        old = old_lines,
+      })
     end
   end)
   if vim.bo[buf].eol ~= eol and not (eol and vim.bo[buf].fixeol) then

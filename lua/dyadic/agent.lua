@@ -61,6 +61,7 @@ function Agent.new(id, config, on_close)
         tool.running = false
       end
       ExtensionUI.dispose_dialogs(self)
+      require("dyadic.review").abort(self)
       if code == 0 and signal == 0 then
         self:notice("Pi exited")
       else
@@ -463,6 +464,8 @@ function Agent:event(record)
     self.active, self.phase, self.run_failed = true, "Working", nil
   elseif kind == "agent_settled" then
     self.active, self.phase = false, record.aborted and "Aborted" or "Idle"
+    -- A tool waiting for a review cannot finish a run, so open reviews were aborted.
+    require("dyadic.review").abort(self)
     -- A failed run keeps its trailing activity expanded, showing where it stopped.
     local last = self.messages[#self.messages]
     self.run_failed = record.aborted == true
@@ -579,6 +582,7 @@ function Agent:close(keep_buffer)
   if self.closed then
     return
   end
+  require("dyadic.review").abort(self)
   View.dispose(self)
   self.closed, self.active = true, false
   if self.rpc then
