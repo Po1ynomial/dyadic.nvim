@@ -73,12 +73,6 @@ local function apply_width(state, agent)
   state.width, state.columns = api.nvim_win_get_width(state.win), vim.o.columns
 end
 
-local function set_buffer(win, buf)
-  vim.wo[win].winfixbuf = false
-  api.nvim_win_set_buf(win, buf)
-  vim.wo[win].winfixbuf = true
-end
-
 -- Show an agent in this tab's sidebar, opening it if needed. Returns the history window.
 function M.show(agent)
   local View = require("dyadic.view")
@@ -90,7 +84,7 @@ function M.show(agent)
       if shown and require("dyadic.composer").anchor(shown) == state.win then
         require("dyadic.composer").close(shown)
       end
-      set_buffer(state.win, agent.history_buf)
+      require("dyadic.pin").set_buf(state.win, agent.history_buf)
     end
     return state.win
   end
@@ -105,7 +99,7 @@ function M.show(agent)
     width = width_for(agent, vim.o.columns),
   })
   vim.wo[win].winfixwidth = true
-  vim.wo[win].winfixbuf = true
+  require("dyadic.pin").pin(win, agent.history_buf)
   View.adopt(win)
   state = { win = win }
   sidebars[tab] = state

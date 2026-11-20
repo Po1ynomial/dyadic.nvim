@@ -74,6 +74,7 @@ local function native_editor(dialog)
   vim.bo[buf].bufhidden = "wipe"
   vim.bo[buf].swapfile = false
   vim.bo[buf].filetype = "markdown"
+  pcall(api.nvim_buf_set_name, buf, "dyadic://" .. dialog.agent.id .. "/editor/" .. tostring(dialog.id))
   api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(record.prefill or "", "\n", { plain = true }))
   local width = math.max(1, math.min(100, vim.o.columns - 4))
   local height = math.max(1, math.min(20, vim.o.lines - 6))
@@ -106,7 +107,15 @@ local function native_editor(dialog)
   vim.keymap.set("n", "q", cancel, { buffer = buf, silent = true })
   vim.keymap.set("n", "<Esc>", cancel, { buffer = buf, silent = true })
   dialog.group = api.nvim_create_augroup("DyadicDialog" .. buf, { clear = true })
-  api.nvim_create_autocmd({ "BufWipeout", "BufHidden" }, { group = dialog.group, buffer = buf, callback = cancel })
+  require("dyadic.pin").pin(win, buf, { lost = cancel })
+  -- Not while the buffer is being hidden or wiped: closing its window then fails.
+  api.nvim_create_autocmd({ "BufWipeout", "BufHidden" }, {
+    group = dialog.group,
+    buffer = buf,
+    callback = function()
+      vim.schedule(cancel)
+    end,
+  })
   api.nvim_create_autocmd("WinClosed", { group = dialog.group, pattern = tostring(win), callback = cancel })
 end
 

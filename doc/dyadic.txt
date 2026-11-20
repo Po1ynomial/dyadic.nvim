@@ -129,7 +129,7 @@ While attached, the history window and its composer stay together:
 - A composer moved elsewhere, for example with CTRL-W K, is put back.
 - Windows split inside the pair, such as |:vsplit| in the history window,
   move out beside the window you last used outside it.
-- The composer refuses other buffers ('winfixbuf').
+- The composer refuses other buffers (|dyadic-own-windows|).
 - Showing another buffer in the history window closes the composer first;
   the draft is kept.
 - Closing the history window closes its composer. Closing the composer
@@ -140,6 +140,14 @@ While attached, the history window and its composer stay together:
 
 Without a composer, a history window is an ordinary window.
 
+                                                        *dyadic-own-windows*
+The sidebar, the composer, and dyadic's floats (the tree picker, the
+detail, the extension editor) show only their own buffers. They set
+'winfixbuf', so |:bnext|, |[b|, |CTRL-^|, |:edit|, and the like fail there
+with |E1513|. A forced switch, such as `:bnext!` or `:buffer! 3`, opens that
+buffer in the main area instead: the sidebar and the composer get their
+buffer back, and a float closes.
+
 Placements                                                *dyadic-placement*
 `"sidebar"` (default): each tab can have one sidebar, a column at the edge of
 the tab with one agent's history and its composer.
@@ -149,9 +157,10 @@ the tab with one agent's history and its composer.
   `max_width`, and leaves the main area at least 40 columns. A manual resize
   is remembered as a share of the editor and applied again when the editor
   is resized. CTRL-W = leaves the sidebar alone.
-- The sidebar window refuses other buffers. `gf`, `gF`, and CTRL-W f open
-  files in the main area, resolving relative paths against pi's working
-  directory. Windows split inside the sidebar move to the main area.
+- The sidebar window refuses other buffers (|dyadic-own-windows|). `gf`,
+  `gF`, and CTRL-W f open files in the main area, resolving relative paths
+  against pi's working directory. Windows split inside the sidebar move to
+  the main area.
 - |:q| on the last window outside the sidebar closes the sidebar too, so the
   tab closes or Neovim exits. When the quit is refused, the sidebar comes
   back.

@@ -188,7 +188,7 @@ end
 local function composer_options(win)
   local wo = vim.wo[win]
   wo.winfixheight = true
-  wo.winfixbuf = true
+  require("dyadic.pin").pin(win, api.nvim_win_get_buf(win))
   wo.wrap = true
   wo.linebreak = true
   wo.number = false
@@ -245,7 +245,7 @@ function M.to_history(agent, win)
   if attached[agent] and attached[agent].win == win then
     attached[agent] = nil
   end
-  vim.wo[win].winfixbuf = false
+  require("dyadic.pin").unpin(win)
   vim.wo[win].winfixheight = false
   api.nvim_win_set_buf(win, agent.history_buf)
   view().adopt(win)
@@ -299,6 +299,8 @@ end
 
 function M.check()
   check_pending = false
+  -- A forced buffer switch in the sidebar is undone before it looks like a closed pair.
+  require("dyadic.pin").check()
   for agent, state in pairs(attached) do
     check_agent(agent, state)
   end

@@ -650,6 +650,12 @@ local function show(agent, data, initial)
     vim.wo[p.list_win][option] = value
   end
   vim.wo[p.bar_win].wrap = false
+  local Pin = require("dyadic.pin")
+  local function lost()
+    close(p, true)
+  end
+  Pin.pin(p.list_win, p.list_buf, { lost = lost })
+  Pin.pin(p.bar_win, p.bar_buf, { lost = lost })
   placeholder(p)
   bind(p)
   p.group = api.nvim_create_augroup("DyadicTree", { clear = true })

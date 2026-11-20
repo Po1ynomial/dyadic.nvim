@@ -245,6 +245,7 @@ function M.open(agent, key)
   config.title = title_of(content)
   config.title_pos = "left"
   win = api.nvim_open_win(buf, true, config)
+  require("dyadic.pin").pin(win, buf)
   vim.wo[win].wrap = true
   vim.wo[win].linebreak = true
   -- Virtual lines above line 1 show only with filler rows at the top of the view.

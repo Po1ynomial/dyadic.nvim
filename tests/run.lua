@@ -35,8 +35,30 @@ if args[1] == "--case" then
   vim.notify = function(msg, level)
     table.insert(_G.notes, { msg = msg, level = level })
   end
+  -- Every window dyadic opens for its own buffer is pinned to it (lua/dyadic/pin.lua); only
+  -- a history window outside the sidebar is an ordinary window.
+  local unpinned = {}
+  local open_win = vim.api.nvim_open_win
+  vim.api.nvim_open_win = function(...)
+    local win = open_win(...)
+    vim.schedule(function()
+      if not vim.api.nvim_win_is_valid(win) then
+        return
+      end
+      local name = vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(win))
+      local free_history = name:match("/history$") and not require("dyadic.sidebar").contains(win)
+      if name:match("^dyadic://") and not free_history and not vim.wo[win].winfixbuf then
+        unpinned[#unpinned + 1] = name
+      end
+    end)
+    return win
+  end
   local case = load(args[2]).cases[tonumber(args[3])]
   local ok, err = xpcall(case.fn, debug.traceback)
+  vim.wait(10)
+  if ok and #unpinned > 0 then
+    ok, err = false, "windows not pinned to their buffer: " .. table.concat(unpinned, ", ")
+  end
   -- Close agents so fake pi processes exit before this Neovim does.
   pcall(function()
     local dyadic = require("dyadic")
