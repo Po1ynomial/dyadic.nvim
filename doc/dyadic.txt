@@ -540,7 +540,10 @@ Whether a file is reviewed:
 <
 The nearest rule above a file wins, matching whole path components after
 `~` expansion and symlink resolution; relative rule paths are relative to
-the agent's cwd. Without a matching rule, `default` decides. For one agent,
+the agent's cwd. Rules and files are compared by where they really are, so
+a rule may name a directory that does not exist yet, and a file reached
+through a symlink follows the rules of its target. Without a matching rule,
+`default` decides. For one agent,
 `:Dyadic review on` or `:Dyadic review off` overrides the rules until
 `:Dyadic review auto`.
 

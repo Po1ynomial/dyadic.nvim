@@ -197,6 +197,54 @@ T("review rules: the nearest rule wins, and the agent's switch overrides rules",
   ok(not Review.enabled(agent, dir .. "/scratch/c.txt"))
 end)
 
+-- A real directory and a symlink to it.
+local function linked()
+  local _, dir = file({ "x" })
+  local real, link = dir .. "/real", dir .. "/link"
+  vim.fn.mkdir(real, "p")
+  assert(vim.uv.fs_symlink(real, link))
+  return real, link, dir
+end
+
+T("a new file under a symlinked directory is reviewed", function()
+  local agent, log = open()
+  local _, link = linked()
+  local path = link .. "/new.txt"
+  local plan, id = propose(agent, log, path, "hello\n", "write")
+  eq(plan.mode, "review")
+  local buf = require("dyadic.files").buffer(path)
+  ok(buf, "no buffer for " .. path)
+  eq(lines(buf), { "hello" })
+  eq(Review.pending(agent), 1)
+  Review.decide(Review.first(agent), false, true)
+  ok(answer(log, id).error)
+  eq(require("dyadic.files").buffer(path), nil)
+end)
+
+T("review rules match where files really are, through symlinks either way", function()
+  local real, link, dir = linked()
+  local outside = dir .. "/shared"
+  vim.fn.mkdir(outside, "p")
+  assert(vim.uv.fs_symlink(outside, real .. "/vendor"))
+  local agent = H.open({}, {
+    review = {
+      default = false,
+      -- One rule through the symlink for a directory that exists, one that does not yet.
+      paths = { [link .. "/src"] = true, [link .. "/later"] = true },
+    },
+  })
+  vim.fn.mkdir(real .. "/src", "p")
+  ok(Review.enabled(agent, real .. "/src/a.lua"))
+  ok(Review.enabled(agent, link .. "/src/a.lua"))
+  ok(Review.enabled(agent, real .. "/later/new/b.lua"))
+  ok(Review.enabled(agent, link .. "/later/b.lua"))
+  ok(not Review.enabled(agent, real .. "/other.lua"))
+  -- A symlink inside a reviewed directory follows the rules of its target.
+  agent.config.review.paths = { [real] = true }
+  ok(Review.enabled(agent, real .. "/a.lua"))
+  ok(not Review.enabled(agent, real .. "/vendor/lib.lua"))
+end)
+
 T("the user's own buffer-local mapping comes back after the review", function()
   local agent, log = open()
   local path = file({ "a" })

@@ -36,36 +36,24 @@ function M.options(config)
   }
 end
 
+-- A rule's path, resolved like the files it is matched against, even before it exists.
 local function expand(path, cwd)
   path = vim.fs.normalize(path)
   if path:sub(1, 1) ~= "/" then
     path = vim.fs.joinpath(cwd, path)
   end
-  return vim.uv.fs_realpath(path) or vim.fs.normalize(path)
-end
-
--- The real path of a file that may not exist yet: its nearest existing parent's, resolved.
-local function real_file(path)
-  local current, rest = vim.fs.normalize(path), {}
-  while not vim.uv.fs_realpath(current) do
-    local parent = vim.fs.dirname(current)
-    if parent == current then
-      break
-    end
-    table.insert(rest, 1, vim.fs.basename(current))
-    current = parent
-  end
-  return vim.fs.joinpath(vim.uv.fs_realpath(current) or current, unpack(rest))
+  return Files.real_file(path)
 end
 
 -- Whether a change to `path` is reviewed: the agent's switch, else the nearest review
--- rule above the file, else the default.
+-- rule above the file, else the default. Rules and files are compared by where they
+-- really are, so a file reached through a symlink follows the rules of its target.
 function M.enabled(agent, path)
   if agent.review_switch ~= nil then
     return agent.review_switch
   end
   local options = M.options(agent.config)
-  local file = real_file(path)
+  local file = Files.real_file(path)
   local best, depth
   for rule, value in pairs(options.paths) do
     local root = expand(rule, agent.cwd)

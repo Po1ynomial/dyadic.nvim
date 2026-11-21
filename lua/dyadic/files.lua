@@ -8,24 +8,32 @@ local api = vim.api
 local diff = vim.text and vim.text.diff or vim.diff
 M.diff = diff
 
-local function normalize(path)
-  return vim.fs.normalize(path)
-end
-
-local function real(path)
-  return vim.uv.fs_realpath(path)
+-- Where an absolute path really is, even when it does not exist yet: its nearest existing
+-- parent with symlinks resolved, and the rest as given. Neovim names a new file's buffer
+-- the same way.
+function M.real_file(path)
+  local current, rest = vim.fs.normalize(path), {}
+  while not vim.uv.fs_realpath(current) do
+    local parent = vim.fs.dirname(current)
+    if parent == current then
+      break
+    end
+    table.insert(rest, 1, vim.fs.basename(current))
+    current = parent
+  end
+  return vim.fs.joinpath(vim.uv.fs_realpath(current) or current, unpack(rest))
 end
 
 -- The loaded file buffer for an absolute path, if any.
 function M.buffer(path)
-  local wanted = normalize(path)
-  local wanted_real = real(wanted)
+  local wanted = vim.fs.normalize(path)
+  local wanted_real = M.real_file(wanted)
   for _, buf in ipairs(api.nvim_list_bufs()) do
     if api.nvim_buf_is_loaded(buf) and vim.bo[buf].buftype == "" then
       local name = api.nvim_buf_get_name(buf)
       if name ~= "" then
-        name = normalize(name)
-        if name == wanted or (wanted_real and real(name) == wanted_real) then
+        name = vim.fs.normalize(name)
+        if name == wanted or M.real_file(name) == wanted_real then
           return buf
         end
       end
