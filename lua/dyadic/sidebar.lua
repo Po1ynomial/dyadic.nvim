@@ -136,6 +136,32 @@ local function dyadic_window(win)
   return M.contains(win) or require("dyadic.composer").pair_member(win)
 end
 
+-- A new window for the main area of `tab`, across from its sidebar, showing the most
+-- recently used file buffer, else a new empty one.
+local function open_main(tab)
+  local state = state_of(tab)
+  local config = { split = "above", win = -1 }
+  if state then
+    -- A sidebar alone spans the tab, so its side comes from the agent's options.
+    local agent = require("dyadic.view").agent_of(api.nvim_win_get_buf(state.win))
+    local left
+    if agent then
+      left = options(agent).side == "left"
+    else
+      left = api.nvim_win_get_position(state.win)[2] == 0
+    end
+    config.split = left and "right" or "left"
+  end
+  local buf = require("dyadic.files").recent() or api.nvim_create_buf(true, false)
+  local win
+  -- `win = -1` splits the current tab; run in `tab` so another tab works too.
+  api.nvim_win_call(api.nvim_tabpage_get_win(tab), function()
+    win = api.nvim_open_win(buf, false, config)
+  end)
+  main[tab] = win
+  return win
+end
+
 -- The main area's window: the one last used outside the sidebar and any history/composer
 -- pair, else another such window, else a new split.
 function M.main_window(tab)
@@ -149,14 +175,7 @@ function M.main_window(tab)
       return candidate
     end
   end
-  local state = state_of(tab)
-  local config = { split = "above", win = -1 }
-  if state then
-    config.split = api.nvim_win_get_position(state.win)[2] == 0 and "right" or "left"
-  end
-  win = api.nvim_open_win(api.nvim_create_buf(true, false), false, config)
-  main[tab] = win
-  return win
+  return open_main(tab)
 end
 
 -- gf, gF, and <C-w>f in the sidebar or the detail open in the main area. Paths in tool
@@ -243,6 +262,19 @@ function M.check(created)
             local Composer = require("dyadic.composer")
             Composer.move_out(win, true)
           end
+        end
+        -- The sidebar never stands alone, whatever closed the main area's last window.
+        local alone = true
+        for _, win in ipairs(api.nvim_tabpage_list_wins(tab)) do
+          if not is_float(win) and not M.contains(win) then
+            alone = false
+            break
+          end
+        end
+        if alone then
+          open_main(tab)
+          -- Back to the sidebar's width, not taken for a manual resize.
+          apply_width(state, agent)
         end
         if tab == api.nvim_get_current_tabpage() then
           if state.columns ~= vim.o.columns then

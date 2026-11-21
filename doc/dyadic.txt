@@ -164,6 +164,9 @@ the tab with one agent's history and its composer.
 - |:q| on the last window outside the sidebar closes the sidebar too, so the
   tab closes or Neovim exits. When the quit is refused, the sidebar comes
   back.
+- The sidebar never stands alone: when the main area's last window closes
+  any other way, such as |:close| or |CTRL-W_o| in the sidebar, a new one
+  opens across from it with the file you used last.
 
 `"free"`: `:Dyadic` shows the history in a history window of the tab, or in
 the current window, with the composer below. The history buffer can be shown

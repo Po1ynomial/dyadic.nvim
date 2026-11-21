@@ -128,6 +128,66 @@ T(":q on the last window outside the sidebar closes the tab", function()
   eq(#api.nvim_list_tabpages(), 1)
 end)
 
+-- Ordinary windows of the current tab: the main area.
+local function main_area()
+  return vim.tbl_filter(function(win)
+    return api.nvim_win_get_config(win).relative == "" and not Sidebar.contains(win)
+  end, api.nvim_tabpage_list_wins(0))
+end
+
+T("the sidebar never stands alone: a closed main area comes back with the last file", function()
+  local file = vim.fn.tempname() .. ".txt"
+  vim.fn.writefile({ "x" }, file)
+  vim.cmd("edit " .. file)
+  local buf = api.nvim_get_current_buf()
+  local agent = open()
+  for _, how in ipairs({ "close", "only in the sidebar", "api" }) do
+    if how == "close" then
+      api.nvim_set_current_win(Sidebar.main_window())
+      vim.cmd("close")
+    elseif how == "only in the sidebar" then
+      api.nvim_set_current_win(Sidebar.window())
+      vim.cmd("only")
+    else
+      api.nvim_win_close(Sidebar.main_window(), true)
+    end
+    H.settle()
+    local area = main_area()
+    eq(#area, 1, how)
+    eq(api.nvim_win_get_buf(area[1]), buf, how)
+    eq(api.nvim_win_get_position(area[1])[2], 0, how)
+    -- The sidebar keeps its place and width.
+    eq(api.nvim_win_get_buf(Sidebar.window()), agent.history_buf, how)
+    eq(api.nvim_win_get_width(Sidebar.window()), 56, how)
+  end
+end)
+
+T("a left sidebar gets its main area back on the right", function()
+  open({ sidebar = { side = "left" } })
+  api.nvim_set_current_win(Sidebar.main_window())
+  vim.cmd("close")
+  H.settle()
+  local area = main_area()
+  eq(#area, 1)
+  eq(api.nvim_win_get_position(Sidebar.window())[2], 0)
+  eq(api.nvim_win_get_position(area[1])[2], 57)
+end)
+
+T("a closed main area in another tab comes back in that tab", function()
+  open()
+  local tab = api.nvim_get_current_tabpage()
+  local main = Sidebar.main_window()
+  vim.cmd("tabnew")
+  local other = api.nvim_get_current_tabpage()
+  local windows = api.nvim_tabpage_list_wins(other)
+  api.nvim_win_close(main, true)
+  H.settle()
+  eq(api.nvim_get_current_tabpage(), other)
+  eq(api.nvim_tabpage_list_wins(other), windows)
+  eq(#api.nvim_tabpage_list_wins(tab), 3)
+  ok(api.nvim_win_is_valid(Sidebar.main_window(tab)))
+end)
+
 T("each tab has its own sidebar; the composer follows the agent", function()
   local agent = open()
   local first = Sidebar.window()
