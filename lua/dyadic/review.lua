@@ -450,7 +450,8 @@ local function bind(review)
 end
 
 local function begin(agent, buf, path, content, reply, created)
-  local original = api.nvim_buf_get_lines(buf, 0, -1, false)
+  -- An empty buffer's one empty line is not content.
+  local original = Files.text(buf) == "" and {} or api.nvim_buf_get_lines(buf, 0, -1, false)
   local review = { agent = agent, buf = buf, path = path, reply = reply, original = original, created = created }
   review.applying = true
   local hunks = Files.apply(buf, content)

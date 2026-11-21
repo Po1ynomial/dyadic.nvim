@@ -137,6 +137,19 @@ T("a rejected new file leaves no buffer behind", function()
   eq(vim.fn.filereadable(path), 0)
 end)
 
+T("a new file is one hunk, blank lines and all", function()
+  local agent, log = open()
+  local _, dir = file({ "x" })
+  local path = dir .. "/new.md"
+  local _, id = propose(agent, log, path, "# Title\n\nText.\n", "write")
+  local buf = require("dyadic.files").buffer(path)
+  eq(lines(buf), { "# Title", "", "Text." })
+  eq(Review.pending(agent), 1)
+  Review.decide(Review.first(agent), true, true)
+  -- Nothing but the change is in the buffer, so the user did not edit it.
+  eq(answer(log, id), { note = "Accepted by the user; unsaved in the editor." })
+end)
+
 T("an aborted run keeps accepted hunks and reverts the rest", function()
   local agent, log = open()
   local path = file({ "a", "b", "c", "d", "e", "f", "g" })

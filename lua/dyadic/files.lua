@@ -77,6 +77,18 @@ end
 function M.apply(buf, content)
   local old = api.nvim_buf_get_lines(buf, 0, -1, false)
   local new, eol = M.lines(content)
+  if M.text(buf) == "" then
+    -- An empty buffer still has one empty line, which is not content: replace it whole.
+    if #new == 0 then
+      return {}
+    end
+    api.nvim_buf_call(buf, function()
+      vim.cmd("let &l:undolevels = &l:undolevels")
+      api.nvim_buf_set_lines(buf, 0, -1, false, new)
+    end)
+    vim.bo[buf].eol = eol
+    return { { start = 1, count = #new, lines = new, old_start = 0, old_count = 0, old = {} } }
+  end
   local hunks = diff(table.concat(old, "\n") .. "\n", table.concat(new, "\n") .. "\n", {
     result_type = "indices",
     algorithm = "histogram",
