@@ -520,8 +520,9 @@ own on the same key comes back afterwards. Change or disable them with
 `review.keys`. Editing inside an undecided hunk accepts it with your changes.
 After your decisions the model learns what landed: the whole change, which
 hunks you rejected and why, and whether you also edited the file. Rejecting
-all of a new file's content leaves no buffer behind. When the run is aborted
-during a review, accepted hunks stay and the rest are reverted.
+all of a new file's content leaves no buffer behind; windows that showed it
+stay and show the file shown before. When the run is aborted during a
+review, accepted hunks stay and the rest are reverted.
 
 One review per buffer runs at a time; another agent's change to the same
 buffer waits, and fails when the buffer changed meanwhile, so the model

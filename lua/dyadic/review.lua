@@ -282,7 +282,7 @@ local function finish(review, aborted)
     restore_keys(review)
     -- A rejected new file leaves nothing behind.
     if review.created and vim.fn.filereadable(review.path) == 0 and result and result.error then
-      pcall(api.nvim_buf_delete, review.buf, { force = true })
+      Files.wipe(review.buf)
     end
   end
   if result then

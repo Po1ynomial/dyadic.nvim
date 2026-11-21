@@ -135,6 +135,46 @@ function M.apply(buf, content)
   return applied
 end
 
+-- A listed file buffer other than `except`, to show in place of one that goes.
+local function usable(buf, except)
+  return buf > 0
+    and buf ~= except
+    and api.nvim_buf_is_valid(buf)
+    and vim.bo[buf].buflisted
+    and vim.bo[buf].buftype == ""
+end
+
+-- The most recently used listed file buffer other than `except`, if any.
+function M.recent(except)
+  local best
+  for _, info in ipairs(vim.fn.getbufinfo({ buflisted = 1 })) do
+    if usable(info.bufnr, except) and (not best or info.lastused > best.lastused) then
+      best = info
+    end
+  end
+  return best and best.bufnr or nil
+end
+
+-- Wipe a buffer but keep the windows that show it: each shows its alternate buffer
+-- instead, else the most recently used file buffer, else a new empty one.
+function M.wipe(buf)
+  local empty
+  for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+    local other = api.nvim_win_call(win, function()
+      return vim.fn.bufnr("#")
+    end)
+    if not usable(other, buf) then
+      other = M.recent(buf)
+    end
+    if not other then
+      empty = empty or api.nvim_create_buf(true, false)
+      other = empty
+    end
+    pcall(api.nvim_win_set_buf, win, other)
+  end
+  pcall(api.nvim_buf_delete, buf, { force = true })
+end
+
 -- Write the buffer like :write does, autocommands and all, creating missing directories.
 function M.save(buf)
   local ok, err = pcall(api.nvim_buf_call, buf, function()

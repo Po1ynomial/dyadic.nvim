@@ -137,6 +137,46 @@ T("a rejected new file leaves no buffer behind", function()
   eq(vim.fn.filereadable(path), 0)
 end)
 
+T("rejecting a new file keeps the windows that show it", function()
+  local agent, log = open()
+  local old, dir = file({ "old" })
+  local path = dir .. "/new.txt"
+  local _, id = propose(agent, log, path, "hello\n", "write")
+  api.nvim_set_current_win(require("dyadic.sidebar").main_window())
+  vim.cmd("edit " .. old)
+  local buf = require("dyadic.files").buffer(path)
+  api.nvim_win_set_buf(0, buf)
+  vim.cmd("split")
+  local windows = api.nvim_tabpage_list_wins(0)
+  Review.decide(Review.first(agent), false, true)
+  ok(answer(log, id).error)
+  eq(api.nvim_tabpage_list_wins(0), windows)
+  for _, win in ipairs(vim.fn.win_findbuf(vim.fn.bufnr(old))) do
+    windows = vim.tbl_filter(function(other)
+      return other ~= win
+    end, windows)
+  end
+  -- Both windows went back to the file shown before; the sidebar's two keep theirs.
+  eq(#windows, 2)
+  eq(api.nvim_buf_is_valid(buf), false)
+end)
+
+T("rejecting a new file with no other file to show leaves an empty buffer in its window", function()
+  local agent, log = open()
+  local _, dir = file({ "x" })
+  local path = dir .. "/new.txt"
+  local _, id = propose(agent, log, path, "hello\n", "write")
+  local main = require("dyadic.sidebar").main_window()
+  vim.bo[api.nvim_win_get_buf(main)].buflisted = false
+  api.nvim_win_set_buf(main, require("dyadic.files").buffer(path))
+  Review.decide(Review.first(agent), false, true)
+  ok(answer(log, id).error)
+  ok(api.nvim_win_is_valid(main))
+  local shown = api.nvim_win_get_buf(main)
+  eq(api.nvim_buf_get_name(shown), "")
+  eq(lines(shown), { "" })
+end)
+
 T("a new file is one hunk, blank lines and all", function()
   local agent, log = open()
   local _, dir = file({ "x" })
