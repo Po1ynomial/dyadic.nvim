@@ -86,6 +86,7 @@ local function define_highlights()
     DyadicTreeLabel = "DiagnosticWarn",
     DyadicReviewAdd = "DiffAdd",
     DyadicReviewDelete = "DiffDelete",
+    DyadicReviewTitle = "Title",
     DyadicReviewHint = "Comment",
     DyadicReviewKey = "Special",
   }) do

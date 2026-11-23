@@ -221,30 +221,47 @@ local function layout(chunks, view, fill)
   return lines
 end
 
--- The banner over the hunk at the cursor: its number and the keys that act on it.
+local function pending(review)
+  local list = {}
+  for _, hunk in ipairs(review.hunks) do
+    if hunk.state == "pending" then
+      list[#list + 1] = hunk
+    end
+  end
+  return list
+end
+
+-- The banner over the hunk at the cursor: a title with its number, then the keys that
+-- do something here. With one undecided hunk left, accepting all is accepting it and
+-- there is nowhere to move.
 local function banner(review, hunk, width)
   local keys = M.options(review.agent.config).keys
-  local items = { { { string.format("hunk %d/%d", hunk.index, #review.hunks), "DyadicReviewHint" } } }
+  local title = { { string.format("Review %d/%d", hunk.index, #review.hunks), "DyadicReviewTitle" } }
   if hunk.edited then
     -- What accept takes: the user's version.
-    items[#items + 1] = { { "edited", "DyadicReviewHint" } }
+    vim.list_extend(title, { { " · ", "DyadicReviewHint" }, { "edited", "DyadicReviewHint" } })
   end
+  local items = { title }
+  local function key(name)
+    local value = keys[name]
+    return type(value) == "string" and value ~= "" and value or nil
+  end
+  local alone = #pending(review) <= 1
   for _, item in ipairs({
     { "accept", "accept" },
     { "reject", "reject" },
-    { "reject_reason", "reject with reason" },
-    { "accept_all", "accept all" },
+    { "reject_reason", "+reason" },
+    { "accept_all", "all", alone },
   }) do
-    local key = keys[item[1]]
-    if type(key) == "string" and key ~= "" then
-      items[#items + 1] = { { key, "DyadicReviewKey" }, { " " .. item[2], "DyadicReviewHint" } }
+    if key(item[1]) and not item[3] then
+      items[#items + 1] = { { key(item[1]), "DyadicReviewKey" }, { " " .. item[2], "DyadicReviewHint" } }
     end
   end
-  local moves = vim.tbl_filter(function(key)
-    return type(key) == "string" and key ~= ""
-  end, { keys.next, keys.prev })
-  if #moves > 0 then
-    items[#items + 1] = { { table.concat(moves, " "), "DyadicReviewKey" }, { " move", "DyadicReviewHint" } }
+  local moves = vim.tbl_filter(function(value)
+    return value ~= nil
+  end, { key("next"), key("prev") })
+  if #moves > 0 and not alone then
+    items[#items + 1] = { { table.concat(moves, " "), "DyadicReviewKey" } }
   end
   local lines, line, used = {}, {}, 0
   for _, item in ipairs(items) do
@@ -252,12 +269,12 @@ local function banner(review, hunk, width)
     for _, chunk in ipairs(item) do
       cells = cells + vim.fn.strdisplaywidth(chunk[1])
     end
-    if used > 0 and used + 3 + cells > width then
+    if used > 0 and used + 2 + cells > width then
       lines[#lines + 1], line, used = line, {}, 0
     end
     if used > 0 then
-      line[#line + 1] = { " · ", "DyadicReviewHint" }
-      used = used + 3
+      line[#line + 1] = { "  ", "DyadicReviewHint" }
+      used = used + 2
     end
     vim.list_extend(line, item)
     used = used + cells
@@ -270,21 +287,11 @@ end
 --
 -- The buffer's text is the truth, and the undo history holds the decisions. The agent's
 -- change, and each accept or reject, is one undo step. After every change, undo and redo
--- included, each hunk is found by diffing the review's original text against the buffer.
+-- included, each hunk is found by diffing the text the decisions leave against the buffer.
 -- Only decisions decide: a hunk is accepted or rejected when an accept or reject of it is
 -- in the undo path, else it is pending, and edited when its lines are not the agent's.
 -- Editing never decides a hunk, so it never ends a review. Undoing past the agent's change
 -- ends the review as undone.
-
-local function pending(review)
-  local list = {}
-  for _, hunk in ipairs(review.hunks) do
-    if hunk.state == "pending" then
-      list[#list + 1] = hunk
-    end
-  end
-  return list
-end
 
 -- Pending hunks of an agent's reviews, for the composer's bar.
 function M.pending(agent)

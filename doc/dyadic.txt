@@ -507,17 +507,18 @@ listed buffer if needed, without changing any window, and applies the change
 there as ordinary edits. Each hunk's added lines are highlighted, with the
 changed words stronger, and its removed lines show above them, wrapped like
 the window wraps text. The tool call waits until you have decided every
-hunk. Reviewed
-changes are never saved; save when you are ready. Commands that read from
-disk, such as tests, do not see them until then, and the model knows this.
+hunk. Reviewed changes are never saved; save when you are ready. Commands
+that read from disk, such as tests, do not see them until then, and the
+model knows this.
 
 The composer's bar shows `review: N hunks` while hunks are undecided, and
 `:Dyadic review` shows the next one. The keys act on the hunk at the cursor:
 the cursor is on one of its added lines, or, for a hunk that only removes
 lines, on the line below them (the last line when they were at the end).
-That hunk shows a banner with its number and the keys; elsewhere the keys
-change nothing and say so. After a decision the cursor moves to the next
-undecided hunk. In the reviewed buffer:
+That hunk shows a banner: `Review 1/3` and the keys that do something
+there, so with one undecided hunk left it leaves out accepting all and
+moving. Elsewhere the keys change nothing and say so. After a decision the
+cursor moves to the next undecided hunk. In the reviewed buffer:
 
   Key   Name            Action ~
   ]c    `next`            Next undecided hunk
@@ -681,6 +682,7 @@ override them.
   DyadicReviewDelete      Lines it removes              DiffDelete
   DyadicReviewAddText     Changed words in added lines  (see below)
   DyadicReviewDeleteText  Changed words in removed ones (see below)
+  DyadicReviewTitle       The review banner's title     Title
   DyadicReviewHint        The review banner             Comment
   DyadicReviewKey         Keys in the review banner     Special
 

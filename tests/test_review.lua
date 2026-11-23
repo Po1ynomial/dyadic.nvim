@@ -387,8 +387,8 @@ T("the banner shows on the hunk at the cursor only, and no hunk has end-of-line 
   -- The banner wraps in the narrow test window; the removed line follows it.
   eq(rows[3][#rows[3]], vim.trim(OLD[3]))
   eq(
-    table.concat(vim.list_slice(rows[3], 1, #rows[3] - 1), " · "),
-    "hunk 1/2 · ga accept · gs reject · gS reject with reason · gA accept all · ]c [c move"
+    table.concat(vim.list_slice(rows[3], 1, #rows[3] - 1), "  "),
+    "Review 1/2  ga accept  gs reject  gS +reason  gA all  ]c [c"
   )
   eq(rows[5], { OLD[5] })
   press("4G")
@@ -396,7 +396,14 @@ T("the banner shows on the hunk at the cursor only, and no hunk has end-of-line 
   eq(rows[3], { vim.trim(OLD[3]) })
   press("]c")
   eq(api.nvim_win_get_cursor(0)[1], 5)
-  eq(virtual(buf)[5][1]:sub(1, 8), "hunk 2/2")
+  eq(virtual(buf)[5][1]:sub(1, 10), "Review 2/2")
+end)
+
+T("with one undecided hunk left, the banner drops accept all and the moves", function()
+  local _, _, _, buf = two_hunks()
+  press("ga", 3)
+  local rows = virtual(buf)
+  eq(table.concat(vim.list_slice(rows[5], 1, #rows[5] - 1), "  "), "Review 2/2  ga accept  gs reject  gS +reason")
 end)
 
 T("keys away from a hunk change nothing and say how to reach one", function()
@@ -566,7 +573,7 @@ T("editing never ends a review, even mid-word on the last hunk", function()
   eq(H.bridge_answer(log, id), nil)
   press("Agiven<Esc>", 5)
   eq(H.bridge_answer(log, id), nil)
-  ok(virtual(buf)[5][1]:find("hunk 2/2 · edited", 1, true))
+  ok(virtual(buf)[5][1]:find("Review 2/2 · edited", 1, true))
   press("ga", 5)
   ok(answer(log, id).note)
 end)
