@@ -1,7 +1,7 @@
 local M = {}
 local Bridge = require("dyadic.bridge")
-local uv = vim.uv
-local windows = vim.fn.has("win32") == 1
+local Sessions = require("dyadic.sessions")
+local resolve = Sessions.resolve
 
 M.names = {
   "model",
@@ -91,216 +91,6 @@ local function pick(agent, items, prompt, format, callback)
       callback(item)
     end
   end)
-end
-
-local function resolve(path, cwd)
-  if windows and not path:find("\\", 1, true) and path:sub(1, 2) ~= "//" then
-    local drive, tail = path:match("^/([a-z])/(.*)$")
-    if not drive then
-      drive, tail = path:match("^/mnt/([a-z])/(.*)$")
-    end
-    if not drive then
-      drive, tail = path:match("^/cygdrive/([a-z])/(.*)$")
-    end
-    if not drive then
-      drive = path:match("^/([a-z])$") or path:match("^/mnt/([a-z])$") or path:match("^/cygdrive/([a-z])$")
-    end
-    if drive then
-      path = drive:upper() .. ":/" .. (tail or "")
-    end
-  end
-  if path == "~" then
-    path = uv.os_homedir()
-  elseif path:sub(1, 2) == "~/" or windows and path:sub(1, 2) == "~\\" then
-    path = vim.fs.joinpath(uv.os_homedir(), path:sub(3))
-  end
-  if path:match("^file://") then
-    path = vim.uri_to_fname(path)
-  end
-  local absolute = path:sub(1, 1) == "/" or windows and (path:sub(1, 1) == "\\" or path:match("^%a:[/\\]"))
-  if not absolute then
-    path = vim.fs.joinpath(cwd, path)
-  end
-  return vim.fs.normalize(path)
-end
-
-local function decode(text)
-  local ok, value = pcall(vim.json.decode, text)
-  if ok and type(value) == "table" then
-    return value
-  end
-end
-
-local function settings(path)
-  local fd = uv.fs_open(path, "r", 438)
-  if not fd then
-    return {}
-  end
-  local stat = uv.fs_fstat(fd)
-  local text = stat and stat.size <= 1024 * 1024 and uv.fs_read(fd, stat.size, 0)
-  uv.fs_close(fd)
-  if not text then
-    return {}
-  end
-  return decode(text:gsub("^\239\187\191", "")) or {}
-end
-
--- Pi resolves all sessionDir values from its process cwd, not the settings file.
--- Its default grouping removes one leading separator and replaces /, \\, and :.
-local function storage(agent)
-  local agent_env = vim.env.PI_CODING_AGENT_DIR
-  local agent_dir = resolve(agent_env and agent_env ~= "" and agent_env or "~/.pi/agent", agent.cwd)
-  local args = agent.config.args or {}
-  local explicit
-  for i, arg in ipairs(args) do
-    if arg == "--session-dir" then
-      explicit = args[i + 1]
-    end
-  end
-  local configured = explicit or vim.env.PI_CODING_AGENT_SESSION_DIR
-  if not configured or configured == "" then
-    local project = settings(vim.fs.joinpath(agent.cwd, ".pi", "settings.json"))
-    local user = settings(vim.fs.joinpath(agent_dir, "settings.json"))
-    configured = project.sessionDir or user.sessionDir
-  end
-  local root = vim.fs.joinpath(agent_dir, "sessions")
-  local grouped = "--" .. resolve(agent.cwd, agent.cwd):gsub("^[/\\]", ""):gsub("[/\\:]", "-") .. "--"
-  local directory = configured and configured ~= "" and resolve(configured, agent.cwd) or vim.fs.joinpath(root, grouped)
-  local current = agent.state and agent.state.sessionFile
-  if type(current) == "string" and current ~= "" then
-    directory = vim.fs.dirname(resolve(current, agent.cwd))
-  end
-  return directory, configured and configured ~= "" and directory or root
-end
-
-local function content_text(content)
-  if type(content) == "string" then
-    return content
-  end
-  local parts = {}
-  for _, block in ipairs(type(content) == "table" and content or {}) do
-    if block.type == "text" and type(block.text) == "string" then
-      parts[#parts + 1] = block.text
-    end
-  end
-  return table.concat(parts, "\n")
-end
-
--- Stream metadata without materializing an entire session or decoding tool output.
--- Oversized lines are skipped; a malformed header never becomes a selectable session.
-local function metadata(path)
-  local fd = uv.fs_open(path, "r", 438)
-  if not fd then
-    return nil
-  end
-  local stat = uv.fs_fstat(fd)
-  local info, first = { path = path, modified = stat and stat.mtime.sec or 0 }, true
-  local pending, offset, skipping = "", 0, false
-  local function line(text)
-    if first then
-      first = false
-      local header = decode(text:gsub("^\239\187\191", ""))
-      if not header or header.type ~= "session" or type(header.id) ~= "string" or type(header.cwd) ~= "string" then
-        return false
-      end
-      info.id, info.cwd, info.timestamp = header.id, header.cwd, header.timestamp
-    elseif text:find('"session_info"', 1, true) or (not info.preview and text:find('"user"', 1, true)) then
-      local entry = decode(text)
-      if entry and entry.type == "session_info" and type(entry.name) == "string" then
-        info.name = entry.name
-      elseif entry and entry.type == "message" and type(entry.message) == "table" and entry.message.role == "user" then
-        local preview = content_text(entry.message.content):gsub("%s+", " ")
-        if preview ~= "" then
-          info.preview = preview:sub(1, 120)
-        end
-      end
-    end
-    return true
-  end
-  while true do
-    local chunk = uv.fs_read(fd, 65536, offset)
-    if not chunk or chunk == "" then
-      break
-    end
-    offset = offset + #chunk
-    local start = 1
-    while start <= #chunk do
-      local stop = chunk:find("\n", start, true)
-      local fragment = chunk:sub(start, stop and stop - 1 or #chunk)
-      if not skipping then
-        if #pending + #fragment > 1024 * 1024 then
-          pending, skipping = "", true
-        else
-          pending = pending .. fragment
-        end
-      end
-      if not stop then
-        break
-      end
-      if skipping and first or not skipping and not line(pending) then
-        uv.fs_close(fd)
-        return nil
-      end
-      pending, skipping, start = "", false, stop + 1
-    end
-  end
-  if pending ~= "" and not skipping and not line(pending) then
-    uv.fs_close(fd)
-    return nil
-  end
-  uv.fs_close(fd)
-  return not first and info.id and info or nil
-end
-
--- Session files are append-only, so size and modification time identify a version.
-local metadata_cache = {}
-local function cached_metadata(path)
-  local stat = uv.fs_stat(path)
-  if not stat then
-    metadata_cache[path] = nil
-    return nil
-  end
-  local version = table.concat({ stat.size, stat.mtime.sec, stat.mtime.nsec }, ":")
-  local hit = metadata_cache[path]
-  if not hit or hit.version ~= version then
-    hit = { version = version, info = metadata(path) or false }
-    metadata_cache[path] = hit
-  end
-  return hit.info or nil
-end
-
-local function discover(agent, all)
-  local directory, root = storage(agent)
-  local found = {}
-  local function scan(dir, recursive)
-    local handle = uv.fs_scandir(dir)
-    if not handle then
-      return
-    end
-    while true do
-      local name, kind = uv.fs_scandir_next(handle)
-      if not name then
-        break
-      end
-      local path = vim.fs.joinpath(dir, name)
-      if kind == "directory" and recursive then
-        scan(path, false)
-      elseif kind == "file" and name:match("%.jsonl$") then
-        local item = cached_metadata(path)
-        if item and (all or resolve(item.cwd, agent.cwd) == resolve(agent.cwd, agent.cwd)) then
-          found[#found + 1] = item
-        end
-      end
-    end
-  end
-  scan(all and root or directory, all)
-  table.sort(found, function(a, b)
-    if a.modified == b.modified then
-      return a.path > b.path
-    end
-    return a.modified > b.modified
-  end)
-  return found
 end
 
 local function switched(agent, kind, fields, original)
@@ -536,13 +326,14 @@ function M.run(agent, text)
   elseif name == "resume" then
     if argument ~= "" and argument ~= "all" then
       local path = resolve(argument, agent.cwd)
-      if not cached_metadata(path) then
+      if not Sessions.info(path) then
         agent:notice("Not a readable pi session file: " .. path, "error")
       else
         switched(agent, "switch_session", { sessionPath = path }, text)
       end
     else
-      pick(agent, discover(agent, argument == "all"), "Saved sessions", function(item)
+      local where = { cwd = agent.cwd, args = agent.args, session_file = agent.state.sessionFile }
+      pick(agent, Sessions.list(where, argument == "all"), "Saved sessions", function(item)
         return (item.name or item.preview or item.id) .. "  " .. (item.timestamp or "") .. "  " .. item.cwd
       end, function(item)
         switched(agent, "switch_session", { sessionPath = item.path }, text)

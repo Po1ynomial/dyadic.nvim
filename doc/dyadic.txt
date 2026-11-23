@@ -60,9 +60,11 @@ Setup is optional. Defaults:
 <
 `cmd`           Executable argv array. dyadic appends `--mode rpc`; do not
                 pass another CLI mode.
-`args`          Ordinary pi startup options, such as `--model` or
-                `--session-dir`. Pi still loads its own configuration,
-                tools, extensions, skills, and templates.
+`args`          Pi arguments that go before every agent's, like a shell
+                alias, such as `--model` or `--session-dir`. The arguments
+                |:Dyadic| refuses are refused here too, and so are
+                messages. Pi still loads its own configuration, tools,
+                extensions, skills, and templates.
 `bridge`        Load dyadic's pi extension (|dyadic-bridge|). With `false`,
                 pi runs stock and the features that need the bridge are
                 unavailable.
@@ -97,7 +99,9 @@ and |terminal| children, so an inherited value names an outer Neovim.
 3. AGENTS                                                      *dyadic-agents*
 
 `:Dyadic` shows the agent you used last, or opens one. `:Dyadic new` opens
-another agent and pi process. An agent shows one pi session at a time;
+another agent and pi process, and `:Dyadic -c`, `:Dyadic -r`, or any other
+pi arguments open one as `pi` would with them (|dyadic-pi-arguments|). An
+agent shows one pi session at a time;
 `/new` and `/resume` change the session without changing the agent.
 Pi runs a session in the directory it was created in, so the agent's
 working directory follows a resumed session; paths in the history and the
@@ -442,6 +446,8 @@ time. dyadic keeps no database of its own.
 :Dyadic                 Show the last agent, or open one, with the
                         configured placement, and focus its composer.
 :Dyadic new             Open another agent and pi process.
+:Dyadic {-pi-args}      Open another agent with pi arguments, such as
+                        `-c`, `-r`, or `--model x` (|dyadic-pi-arguments|).
 :Dyadic toggle          Hide or show this tab's sidebar, or with the free
                         placement, the last agent's windows in this tab.
 :Dyadic agents          Choose among live agents.
@@ -455,25 +461,47 @@ time. dyadic keeps no database of its own.
                         Decide the hunk at the cursor, or all of them.
 :Dyadic {command}       Any pi command name from |dyadic-pi-commands| but
                         `quit`, such as `model` or `resume`, without
-                        touching the draft.
-                        Other names, including extension commands, are an
-                        error; type those in the composer.
+                        touching the draft. Other names, including
+                        extension commands, are an error; type those in
+                        the composer.
 
 Commands act on the agent of the current buffer, or else the last one used.
-`:Dyadic new` opens another agent; `/new` changes the session inside an
-existing one.
+`:Dyadic new` and `:Dyadic -r` open another agent; `/new` and `/resume`
+change the session inside an existing one, and so do the `new` and `resume`
+actions.
+
+                                                        *dyadic-pi-arguments*
+When the first argument starts with `-`, `:Dyadic` opens another agent as
+`pi` would with these arguments, after `args` from |dyadic-setup|. Words are
+split like a shell's: quotes group them, and a leading `~` is the home
+directory. Some arguments work differently than in a terminal:
+
+- `-r`, `--resume`: dyadic shows the sessions of Neovim's cwd and opens the
+  one you choose with `--session`.
+- `--session {id}`: an ID that only matches another directory's session asks
+  whether to fork it into this directory, as pi does, and opens the fork.
+- Messages, the words pi does not read as options or their values, and all
+  words after `--`, become the new agent's draft instead of being sent:
+  `:Dyadic -c -- now fix the test`.
+- Arguments that start no agent are refused: `-p`, `--mode`, `--help`,
+  `--version`, `--list-models`, `--export`, and `@file`.
+
+A resumed session runs in its own directory (|dyadic-agents|).
 
 ==============================================================================
 10. LUA API                                                       *dyadic-api*
 >lua
     local dyadic = require("dyadic")
     local agent = dyadic.open()     -- open an agent
+    dyadic.open({ "-c" })           -- with pi arguments; nil when they
+                                    -- need asking, as -r does
     dyadic.show(agent)              -- show it with the configured placement
     dyadic.toggle()                 -- same as :Dyadic toggle
     dyadic.get()                    -- agent of the current buffer
     dyadic.list()                   -- all live agents
     dyadic.action("submit")         -- any action from |dyadic-mappings|
     dyadic.command("resume")        -- same as :Dyadic resume
+    dyadic.command("-r")            -- same as :Dyadic -r
 <
 Agent fields and methods:
 

@@ -7,10 +7,12 @@ local Bridge = require("dyadic.bridge")
 local Agent = {}
 Agent.__index = Agent
 
-function Agent.new(id, config, on_close)
+-- `args` are pi's arguments after `--mode rpc` and the bridge's, `config.args` by default.
+function Agent.new(id, config, on_close, args)
   local self = setmetatable({
     id = id,
     config = config,
+    args = args or config.args,
     cwd = vim.fn.getcwd(),
     on_close = on_close,
     state = {},
@@ -35,7 +37,7 @@ function Agent.new(id, config, on_close)
   local cmd = vim.deepcopy(config.cmd)
   vim.list_extend(cmd, { "--mode", "rpc" })
   vim.list_extend(cmd, Bridge.args(config))
-  vim.list_extend(cmd, config.args)
+  vim.list_extend(cmd, self.args)
   local rpc, err = require("dyadic.rpc").new({
     cmd = cmd,
     cwd = self.cwd,

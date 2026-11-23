@@ -68,13 +68,21 @@ end
 -- Configure dyadic to use tests/fakepi.lua with a scenario, open an agent, and wait
 -- until it is idle. Scenario values must be plain Lua data.
 function H.open(scenario, config)
+  H.configure(scenario, config)
+  return H.ready(require("dyadic").open())
+end
+
+-- Configure dyadic to use tests/fakepi.lua with a scenario, without opening an agent.
+function H.configure(scenario, config)
   local path = vim.fn.tempname() .. "-dyadic-scenario.lua"
   vim.fn.writefile(vim.split("return " .. vim.inspect(scenario or {}), "\n"), path)
   config = config or {}
   config.cmd = { vim.v.progpath, "--clean", "-l", H.root .. "/tests/fakepi.lua", path }
-  local dyadic = require("dyadic")
-  dyadic.setup(config)
-  local agent = dyadic.open()
+  require("dyadic").setup(config)
+end
+
+-- Wait until a new agent is idle and has refreshed once.
+function H.ready(agent)
   H.wait(function()
     return agent.state.sessionId ~= nil and agent.phase == "Idle"
   end, 3000, "agent to become idle")

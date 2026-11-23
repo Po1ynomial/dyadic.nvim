@@ -18,7 +18,7 @@ Install this repository with your plugin manager, or add it to `runtimepath`. Se
 ```lua
 require('dyadic').setup({
   cmd = { 'pi' },
-  args = {}, -- pi startup options, such as { '--model', 'provider/id' }
+  args = {}, -- pi arguments for every agent, such as { '--model', 'provider/id' }
   bridge = true, -- load dyadic's pi extension; false runs stock pi only
   review = false, -- true, or { default = false, paths = { ['~/work'] = true } }
   change_notes = false, -- tell the agent when files it has seen change
@@ -32,7 +32,7 @@ require('dyadic').setup({
 })
 ```
 
-Run `:Dyadic` to show an agent. Write in the composer, then press Enter in Normal mode to submit. `:Dyadic toggle` hides and shows the sidebar; `:Dyadic new` opens another agent.
+Run `:Dyadic` to show an agent. Write in the composer, then press Enter in Normal mode to submit. `:Dyadic toggle` hides and shows the sidebar; `:Dyadic new` opens another agent, and `:Dyadic` with pi's arguments, such as `:Dyadic -c` or `:Dyadic -r`, opens one as `pi` would.
 
 ## Documentation
 

@@ -51,6 +51,8 @@ function M.setup(opts)
     vim.validate("review.paths", review.paths, "table", true)
     vim.validate("review.keys", review.keys, "table", true)
   end
+  local refused = require("dyadic.cli").check(config.args)
+  assert(not refused, "dyadic: args: " .. tostring(refused))
   assert(#config.cmd > 0, "dyadic: cmd must not be empty")
   assert(
     config.composer.min_height >= 1 and config.composer.max_height > 0,
@@ -78,14 +80,14 @@ function M.list()
   return result
 end
 
-function M.open()
+local function spawn(args)
   next_id = next_id + 1
   local agent = require("dyadic.agent").new(next_id, vim.deepcopy(config), function(closed)
     agents[closed.id] = nil
     if last == closed then
       last = M.list()[#M.list()]
     end
-  end)
+  end, args)
   agents[agent.id], last = agent, agent
   local group = vim.api.nvim_create_augroup("DyadicAgent" .. agent.id, { clear = true })
   vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
@@ -103,10 +105,37 @@ function M.open()
   return agent
 end
 
+-- Start an agent with pi arguments after `args` from setup(), as `:Dyadic` does. Words
+-- that pi reads as messages become the draft. Returns the agent when it started at once;
+-- -r and a session ID from another directory ask first.
+local function start(words)
+  local started
+  require("dyadic.cli").prepare(vim.fn.getcwd(), config.args, words or {}, function(args, draft)
+    started = spawn(args)
+    if draft ~= "" then
+      started:set_draft(draft)
+    end
+  end, { interactive = true })
+  return started
+end
+
+-- Open an agent with extra pi arguments, without asking anything: -r and session IDs from
+-- other directories are errors here.
+function M.open(args)
+  local opened
+  require("dyadic.cli").prepare(vim.fn.getcwd(), config.args, args or {}, function(final, draft)
+    opened = spawn(final)
+    if draft ~= "" then
+      opened:set_draft(draft)
+    end
+  end)
+  return opened
+end
+
 function M.show(agent)
   agent = agent or M.get() or last
   if not agent or agent.closed then
-    return M.open()
+    return start()
   end
   last = agent
   require("dyadic.view").show(agent)
@@ -168,7 +197,16 @@ end
 function M.command(text)
   text = vim.trim(text or "")
   if text == "new" then
-    M.open()
+    start()
+    return
+  end
+  if text:sub(1, 1) == "-" then
+    local words, err = require("dyadic.cli").split(text)
+    if not words then
+      vim.notify("Dyadic: " .. err, vim.log.levels.ERROR)
+      return
+    end
+    start(words)
     return
   end
   if text == "" then
@@ -220,7 +258,15 @@ function M.command(text)
   end
 end
 
-function M.complete(prefix)
+-- Complete `prefix`, the word being typed; `before` are the words before it.
+function M.complete(prefix, before)
+  before = before or {}
+  if (before[1] or prefix):sub(1, 1) == "-" then
+    return require("dyadic.cli").complete(prefix, before)
+  end
+  if #before > 0 then
+    return {}
+  end
   local items = { "new", "toggle", "agents", "composer", "abort", "close", "submit", "follow_up", "dequeue", "review" }
   vim.list_extend(items, require("dyadic.commands").names)
   -- `close` already ends the agent.
