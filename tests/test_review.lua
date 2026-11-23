@@ -304,6 +304,22 @@ T("the user's own buffer-local mapping comes back after the review", function()
   eq(vim.fn.maparg("ga", "n"), "<Cmd>let g:mine = 1<CR>")
 end)
 
+T("a key a plugin maps after the review started is the review's again once the user is there", function()
+  local agent, log = open()
+  local path = file({ "a", "b" })
+  local _, id = propose(agent, log, path, "A\nb\n")
+  local buf = require("dyadic.files").buffer(path)
+  -- As an LSP or git plugin does when it attaches to the buffer the review just loaded.
+  vim.keymap.set("n", "ga", "<Cmd>let g:plugin = 1<CR>", { buffer = buf })
+  show(buf)
+  H.settle()
+  api.nvim_win_set_cursor(0, { 1, 0 })
+  H.keys("ga")
+  ok(answer(log, id).note)
+  eq(vim.g.plugin, nil)
+  eq(vim.fn.maparg("ga", "n"), "<Cmd>let g:plugin = 1<CR>")
+end)
+
 -- Undo and redo. The file has two hunks: line 3 and line 5.
 local OLD = { "local M = {}", "function M.greet(name)", '  print("hello " .. name)', "end", "return M" }
 local NEW3, NEW5 = '  print(("hello %s"):format(name))', "return setmetatable(M, {})"

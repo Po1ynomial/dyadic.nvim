@@ -530,8 +530,11 @@ cursor moves to the next undecided hunk. In the reviewed buffer:
   gA    `accept_all`      Accept every undecided hunk
 
 The keys exist only while the review is open; a buffer-local mapping of your
-own on the same key comes back afterwards. Change or disable them with
-`review.keys`.
+own on the same key comes back afterwards. A plugin that maps one of them
+in the buffer during the review, as LSP and git plugins do when they attach
+to a file the review opened, gets it back after the review too; until then
+the review takes the key again when you enter the buffer or move in it.
+Change or disable them with `review.keys`.
 
 Only the keys decide; editing never does, so it never ends a review. You may
 edit inside an undecided hunk in as many steps as you like: its banner then

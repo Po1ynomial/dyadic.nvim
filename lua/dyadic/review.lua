@@ -584,6 +584,31 @@ local function outcome(review)
   }
 end
 
+-- Map the review's keys in its buffer, keeping the user's own buffer-local mappings to
+-- put back afterwards. Run again whenever the user may reach the keys: a plugin may have
+-- mapped one since, as LSP and git plugins do when they attach to a buffer the review
+-- just loaded. Its mapping is the one that comes back after the review.
+local function claim_keys(review)
+  if not review.actions or not valid_buf(review.buf) then
+    return
+  end
+  for lhs, action in pairs(review.actions) do
+    local desc = "Dyadic review " .. action.name
+    local current = api.nvim_buf_call(review.buf, function()
+      return vim.fn.maparg(lhs, "n", false, true)
+    end)
+    local ours = current.buffer == 1 and current.desc == desc
+    if not ours then
+      if current.buffer == 1 then
+        review.keys[lhs] = current
+      elseif review.keys[lhs] == nil then
+        review.keys[lhs] = false
+      end
+      vim.keymap.set("n", lhs, action.fn, { buffer = review.buf, silent = true, nowait = true, desc = desc })
+    end
+  end
+end
+
 local function restore_keys(review)
   for lhs, saved in pairs(review.keys or {}) do
     pcall(vim.keymap.del, "n", lhs, { buffer = review.buf })
@@ -593,7 +618,7 @@ local function restore_keys(review)
       end)
     end
   end
-  review.keys = nil
+  review.keys, review.actions = nil, nil
 end
 
 local function start_next(buf)
@@ -806,6 +831,7 @@ local function follow_cursor(review)
   if not sync(review) or not valid_buf(review.buf) then
     return
   end
+  claim_keys(review)
   local win = cursor_window(review)
   local hunk = hunk_at(review, win)
   if hunk ~= review.banner then
@@ -952,23 +978,14 @@ local function bind(review)
       M.decide(review, true, true)
     end,
   }
-  review.keys = {}
+  review.keys, review.actions = {}, {}
   for name, fn in pairs(actions) do
     local lhs = keys[name]
     if type(lhs) == "string" and lhs ~= "" then
-      -- Keep the user's own buffer-local mapping to put back afterwards.
-      local saved = api.nvim_buf_call(review.buf, function()
-        return vim.fn.maparg(lhs, "n", false, true)
-      end)
-      review.keys[lhs] = (saved.buffer == 1) and saved or false
-      vim.keymap.set(
-        "n",
-        lhs,
-        fn,
-        { buffer = review.buf, silent = true, nowait = true, desc = "Dyadic review " .. name }
-      )
+      review.actions[lhs] = { name = name, fn = fn }
     end
   end
+  claim_keys(review)
 end
 
 local function watch(review)
@@ -980,7 +997,7 @@ local function watch(review)
       follow_cursor(review)
     end,
   })
-  api.nvim_create_autocmd({ "BufWinEnter", "WinEnter" }, {
+  api.nvim_create_autocmd({ "BufWinEnter", "WinEnter", "BufEnter" }, {
     group = review.group,
     callback = function()
       vim.schedule(function()
