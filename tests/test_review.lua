@@ -349,7 +349,7 @@ local function marked(buf)
   local rows = {}
   local ns = api.nvim_get_namespaces().dyadic_review
   for _, mark in ipairs(api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })) do
-    if mark[4].line_hl_group then
+    if mark[4].hl_group == "DyadicReviewAdd" then
       rows[#rows + 1] = mark[2] + 1
     end
   end
@@ -432,6 +432,46 @@ T("changed words are highlighted in the added and the removed line", function()
     end
   end
   eq(removed, { " .. " })
+end)
+
+T("added lines are a range under their changed words, not a line highlight", function()
+  local _, _, _, buf = two_hunks()
+  local ns = api.nvim_get_namespaces().dyadic_review
+  local line, words
+  for _, mark in ipairs(api.nvim_buf_get_extmarks(buf, ns, { 2, 0 }, { 2, -1 }, { details = true })) do
+    local details = mark[4]
+    eq(details.line_hl_group, nil)
+    if details.hl_group == "DyadicReviewAdd" then
+      line = details
+    elseif details.hl_group == "DyadicReviewAddText" then
+      words = details
+    end
+  end
+  eq({ line.end_row, line.end_col, line.hl_eol }, { 3, 0, true })
+  ok(words.priority > line.priority)
+end)
+
+-- The resolved background of a highlight group.
+local function bg(name)
+  return api.nvim_get_hl(0, { name = name, link = false }).bg
+end
+
+T("changed words take their line's tint, stronger, and follow the colour scheme", function()
+  require("dyadic.view")
+  vim.cmd("hi clear")
+  api.nvim_set_hl(0, "Normal", { bg = 0x101010 })
+  api.nvim_set_hl(0, "DiffAdd", { bg = 0x203020 })
+  -- A removed line with red text and no background.
+  api.nvim_set_hl(0, "DiffDelete", { fg = 0xff0000 })
+  api.nvim_exec_autocmds("ColorScheme", {})
+  eq(bg("DyadicReviewAddText"), 0x305030)
+  eq(bg("DyadicReviewDeleteText"), 0x580b0b)
+  -- A colour the user set wins.
+  vim.cmd("hi clear")
+  api.nvim_set_hl(0, "DiffAdd", { bg = 0x203020 })
+  api.nvim_set_hl(0, "DyadicReviewAddText", { bg = 0x123456 })
+  api.nvim_exec_autocmds("ColorScheme", {})
+  eq(bg("DyadicReviewAddText"), 0x123456)
 end)
 
 T("a removal is picked from the line below it, or the last line at the end", function()

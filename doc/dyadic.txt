@@ -679,10 +679,17 @@ override them.
   DyadicTreeLabel         Labels in the tree picker     DiagnosticWarn
   DyadicReviewAdd         Lines a reviewed change adds  DiffAdd
   DyadicReviewDelete      Lines it removes              DiffDelete
-  DyadicReviewAddText     Changed words in added lines  DiffTextAdd
-                          (DiffText before Neovim 0.12)
-  DyadicReviewDeleteText  Changed words in removed ones DiffText
+  DyadicReviewAddText     Changed words in added lines  (see below)
+  DyadicReviewDeleteText  Changed words in removed ones (see below)
   DyadicReviewHint        The review banner             Comment
   DyadicReviewKey         Keys in the review banner     Special
+
+Changed words get their line's tint, stronger: `DyadicReviewAddText` has the
+background of `DyadicReviewAdd` moved twice as far from `Normal`'s, and the
+same goes for removed words. A line group without a background, such as a
+`DiffDelete` that only colors text red, gives its words that text color
+mixed into `Normal`'s background. Without colors to start from, the words
+link to `DiffTextAdd` (`DiffText` before Neovim 0.12) and `DiffText`. The
+colors are worked out again after each |:colorscheme|.
 
  vim:tw=78:ts=8:ft=help:norl:

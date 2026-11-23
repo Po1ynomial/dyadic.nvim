@@ -479,7 +479,14 @@ local function draw(review)
   for _, hunk in ipairs(pending(review)) do
     for i = 0, hunk.rows - 1 do
       local row = hunk.first + i
-      api.nvim_buf_set_extmark(buf, ns, row, 0, { line_hl_group = "DyadicReviewAdd" })
+      -- A range, not line_hl_group: a line highlight covers the changed words.
+      api.nvim_buf_set_extmark(buf, ns, row, 0, {
+        end_row = row + 1,
+        end_col = 0,
+        hl_group = "DyadicReviewAdd",
+        hl_eol = true,
+        priority = 4096,
+      })
       -- The changed words are the agent's; an edited hunk has other text.
       for _, span in ipairs(not hunk.edited and hunk.new_words[i + 1] or {}) do
         api.nvim_buf_set_extmark(buf, ns, row, span[1], {

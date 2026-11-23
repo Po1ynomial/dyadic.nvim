@@ -18,6 +18,49 @@ local render_widgets, statuslines
 -- Plugins that resolve the parser from 'filetype' (markdown renderers) find markdown too.
 vim.treesitter.language.register("markdown", { "dyadic", "dyadic_composer" })
 
+-- How much stronger than its line's tint a changed word's background is.
+local WORD_STRENGTH = 2
+
+local function channels(color)
+  return { math.floor(color / 65536), math.floor(color / 256) % 256, color % 256 }
+end
+
+-- `from` moved `amount` times the way to `to`: 0.3 mixes, 2 goes twice as far.
+local function shift(from, to, amount)
+  local a, b, out = channels(from), channels(to), 0
+  for i = 1, 3 do
+    out = out * 256 + math.max(0, math.min(255, math.floor(a[i] + (b[i] - a[i]) * amount + 0.5)))
+  end
+  return out
+end
+
+local function resolved(name)
+  return api.nvim_get_hl(0, { name = name, link = false })
+end
+
+-- Changed words get their line's tint, stronger: the line's background moved further from
+-- the editor's. A line without a background, such as a red-text-only DiffDelete, tints
+-- the editor's background with its text colour instead. Without a GUI colour to start
+-- from, the words fall back to Vim's diff groups.
+local function define_word_highlights()
+  local normal = resolved("Normal").bg or (vim.o.background == "light" and 0xffffff or 0x000000)
+  for name, side in pairs({
+    -- DiffTextAdd is new in Neovim 0.12.
+    DyadicReviewAddText = { line = "DyadicReviewAdd", text = "Added", fallback = "DiffTextAdd" },
+    DyadicReviewDeleteText = { line = "DyadicReviewDelete", text = "Removed", fallback = "DiffText" },
+  }) do
+    local line = resolved(side.line)
+    local fallback = vim.fn.hlexists(side.fallback) == 1 and side.fallback or "DiffText"
+    local tint = line.fg or resolved(side.text).fg
+    local bg = line.bg and shift(normal, line.bg, WORD_STRENGTH) or (tint and shift(normal, tint, 0.3))
+    if bg then
+      api.nvim_set_hl(0, name, { bg = bg, ctermbg = resolved(fallback).ctermbg, default = true })
+    else
+      api.nvim_set_hl(0, name, { link = fallback, default = true })
+    end
+  end
+end
+
 local function define_highlights()
   for name, link in pairs({
     DyadicTitle = "Title",
@@ -45,12 +88,10 @@ local function define_highlights()
     DyadicReviewDelete = "DiffDelete",
     DyadicReviewHint = "Comment",
     DyadicReviewKey = "Special",
-    -- DiffTextAdd is new in Neovim 0.12.
-    DyadicReviewAddText = vim.fn.hlexists("DiffTextAdd") == 1 and "DiffTextAdd" or "DiffText",
-    DyadicReviewDeleteText = "DiffText",
   }) do
     api.nvim_set_hl(0, name, { link = link, default = true })
   end
+  define_word_highlights()
 end
 define_highlights()
 -- :colorscheme runs :hi clear, which drops these links.
