@@ -242,8 +242,29 @@ function registerFileTools(pi: ExtensionAPI) {
   });
 }
 
+// Change notes: before a run the user starts, dyadic says which files the agent has seen
+// changed since. dyadic answers null when nothing changed or change notes are off.
+function registerChangeNotes(pi: ExtensionAPI) {
+  pi.on("before_agent_start", async (event, ctx) => {
+    if (event.messageType !== "user") {
+      return;
+    }
+    let note: { text: string; files: string[] } | null;
+    try {
+      note = (await call(ctx, "changes", {})) as typeof note;
+    } catch {
+      return;
+    }
+    if (!note) {
+      return;
+    }
+    return { message: { customType: "dyadic-changes", content: note.text, display: true, details: { files: note.files } } };
+  });
+}
+
 export default function (pi: ExtensionAPI) {
   registerFileTools(pi);
+  registerChangeNotes(pi);
   pi.registerCommand("dyadic", {
     description: "Commands dyadic.nvim sends to its bridge",
     handler: async (text, ctx) => {

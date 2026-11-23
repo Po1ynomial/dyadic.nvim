@@ -338,6 +338,21 @@ local function pieces_of(messages, ctx)
         kind = "usage",
         chunks = { { "usage · " .. one_line(message.content), "DyadicMeta" } },
       }
+    elseif role_name == "custom" and message.customType == "dyadic-changes" then
+      -- A change note dyadic gave the agent: one line, the note itself in the detail.
+      local files = type(message.details) == "table"
+          and type(message.details.files) == "table"
+          and message.details.files
+        or {}
+      local label = "told the agent: " .. table.concat(files, ", ") .. " changed"
+      pieces[#pieces + 1] = {
+        type = "row",
+        kind = "note",
+        key = "note:" .. mkey,
+        message = message,
+        label = "Change note",
+        chunks = { { "↳ ", "DyadicBranch" }, { truncate(one_line(label), ROW_WIDTH), "DyadicActivity" } },
+      }
     elseif role_name == "custom" then
       if message.display ~= false then
         speaker(message.customType or "Extension", "DyadicSpeaker")

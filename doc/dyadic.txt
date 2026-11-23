@@ -55,6 +55,7 @@ Setup is optional. Defaults:
       double_escape = "tree",
       tree = { keys = {} },
       review = false,
+      change_notes = false,
     })
 <
 `cmd`           Executable argv array. dyadic appends `--mode rpc`; do not
@@ -81,6 +82,8 @@ Setup is optional. Defaults:
 `tree`          Tree picker keys (see |dyadic-tree|).
 `review`        Which files' changes you review before they land, and the
                 review keys (see |dyadic-review|).
+`change_notes`  Tell the agent when files it has seen change (see
+                |dyadic-change-notes|).
 
 Configuration applies to agents opened afterwards. Each agent captures
 Neovim's effective cwd when it opens, including window- or tab-local cwd,
@@ -585,6 +588,25 @@ changes are skipped; Neovim warns about them at its next timestamp check.
 Without the bridge, pi reads files from disk, so save a buffer before asking
 about unsaved changes.
 
+Change notes                                            *dyadic-change-notes*
+
+You can edit any file while an agent works with it, and so can formatters,
+other agents, and git. The agent's next `read` sees the current text, but it
+does not know to read again. With `change_notes = true`, dyadic remembers the
+text the agent last saw of each file it read or changed through its tools,
+and tells it what changed since:
+- When you start a run, a note lists the files that changed, each with a
+  diff of up to 20 changed lines, or only where and how much changed when
+  more did. The history shows it as one line, `told the agent: ...`, and |K|
+  on it shows the note. Each change is told once.
+- During a run, an `edit` or `write` whose file ends up different from what
+  the agent's tool produced, because a save formatted it or you edited a
+  reviewed hunk, says so in its result with the same kind of diff.
+The note says the current version stands. After a move in the tree
+(|dyadic-tree|), `/new`, `/resume`, `/fork`, or a session switch, dyadic
+forgets what the agent saw until it reads or changes the files again. Files
+the agent saw only through other tools, such as `bash`, are not tracked.
+
 ==============================================================================
 12. EXTENSIONS AND PROTOCOL LIMITS                         *dyadic-extensions*
 
@@ -613,9 +635,9 @@ dyadic loads it into each agent with `-e` unless `bridge = false`. It adds
 only what pi offers to extensions and not to RPC clients; dyadic draws all
 of its UI in Neovim. Features that need it: `/reload`, moving or labeling in
 the tree picker (|dyadic-tree|), the editor-backed `read`, `edit`, and
-`write` tools (|dyadic-files|), and reviews (|dyadic-review|). The bridge
-registers its own `read`, `edit`, and `write`; another extension that
-replaces them wins if pi loads it later.
+`write` tools (|dyadic-files|), reviews (|dyadic-review|), and change notes
+(|dyadic-change-notes|). The bridge registers its own `read`, `edit`, and
+`write`; another extension that replaces them wins if pi loads it later.
 
 dyadic sends it commands as `/dyadic <name> [json]` prompts. The `/dyadic`
 command is hidden from completion and is not meant to be typed.

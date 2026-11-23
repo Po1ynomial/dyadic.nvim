@@ -17,12 +17,16 @@ type Tool = {
 function load(answer: (request: Request) => unknown) {
   const tools: Record<string, Tool> = {};
   const requests: Request[] = [];
+  const handlers: Record<string, (event: unknown, ctx: unknown) => Promise<unknown>> = {};
   const pi = {
     registerTool: (tool: Tool & { name: string }) => {
       tools[tool.name] = tool;
     },
     registerCommand: () => {},
     setLabel: () => {},
+    on: (event: string, handler: (event: unknown, ctx: unknown) => Promise<unknown>) => {
+      handlers[event] = handler;
+    },
   };
   extension(pi as never);
   const cwd = mkdtempSync(join(tmpdir(), "dyadic-bridge-"));
@@ -42,7 +46,8 @@ function load(answer: (request: Request) => unknown) {
     },
   };
   const run = (name: string, params: unknown) => tools[name].execute("call-1", params, undefined, undefined, ctx);
-  return { tools, requests, cwd, run };
+  const emit = (event: string, payload: unknown) => handlers[event](payload, ctx);
+  return { tools, requests, cwd, run, emit };
 }
 
 function text(result: { content: { text?: string }[] }) {
@@ -110,6 +115,25 @@ Deno.test("review outcomes replace or extend the result, or fail the call", asyn
   assert.equal((partial.details as { diff: string }).diff, "@@ -1 +1 @@\n-a\n+A\n");
   outcome = { error: "The user rejected the change to a.txt." };
   await assert.rejects(run("edit", edits), /The user rejected the change to a\.txt\./);
+});
+
+Deno.test("a run the user starts gets dyadic's change note, if any", async () => {
+  let note: unknown = null;
+  const { emit, requests } = load(() => note);
+  assert.equal(await emit("before_agent_start", { messageType: "user", prompt: "hi" }), undefined);
+  assert.equal(requests[0].kind, "changes");
+  note = { text: "These files changed since you last saw them.", files: ["a.txt"] };
+  assert.deepEqual(await emit("before_agent_start", { messageType: "user", prompt: "hi" }), {
+    message: {
+      customType: "dyadic-changes",
+      content: "These files changed since you last saw them.",
+      display: true,
+      details: { files: ["a.txt"] },
+    },
+  });
+  // Runs started by extension messages are not the user's.
+  assert.equal(await emit("before_agent_start", { messageType: "custom" }), undefined);
+  assert.equal(requests.length, 2);
 });
 
 Deno.test("write creates directories only on the disk path", async () => {

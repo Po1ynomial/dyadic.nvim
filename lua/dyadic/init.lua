@@ -12,6 +12,7 @@ local defaults = {
   double_escape = "tree",
   tree = { keys = {} },
   review = false,
+  change_notes = false,
 }
 local config = vim.deepcopy(defaults)
 local agents, next_id, last = {}, 0, nil
@@ -43,6 +44,7 @@ function M.setup(opts)
   vim.validate("tree", config.tree, "table")
   vim.validate("tree.keys", config.tree.keys, "table")
   vim.validate("review", config.review, { "boolean", "table" })
+  vim.validate("change_notes", config.change_notes, "boolean")
   local review = config.review
   if type(review) == "table" then
     vim.validate("review.default", review.default, "boolean", true)

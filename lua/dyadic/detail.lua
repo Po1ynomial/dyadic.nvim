@@ -95,6 +95,8 @@ function M.content(item)
     return { header = header, filetype = "", lines = text.lines_of(output ~= "" and output or "(no output)") }
   elseif item.kind == "summary" then
     return { header = { item.label or "Summary" }, filetype = "markdown", lines = text.lines_of(item.message.summary) }
+  elseif item.kind == "note" then
+    return { header = { item.label }, filetype = "", lines = text.lines_of(text.content_text(item.message.content)) }
   elseif item.kind == "error" then
     return { header = { "Error" }, filetype = "", lines = text.lines_of(item.message) }
   end

@@ -130,5 +130,6 @@ M.handlers.result = function(agent, request, reply)
 end
 
 require("dyadic.file_tools").register(M)
+require("dyadic.change_notes").register(M)
 
 return M

@@ -250,6 +250,7 @@ function Agent:refresh(callback)
       self.queue_flush_version = self.queue_flush_version + 1
       self.expanded, self.run_failed, self._render_cache = {}, nil, nil
       ExtensionUI.dispose_dialogs(self)
+      require("dyadic.change_notes").forget(self)
     end
     self.state = state
     self.active = state.isStreaming == true or state.isCompacting == true

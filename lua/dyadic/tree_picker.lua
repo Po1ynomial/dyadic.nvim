@@ -309,6 +309,8 @@ function M.navigate(agent, id, node, summarize, instructions)
     end
     agent.history_version = agent.history_version + 1
     agent.partial, agent.tools, agent.bash = nil, {}, nil
+    -- What the agent saw belongs to the branch it left.
+    require("dyadic.change_notes").forget(agent)
     draft_append(agent, Tree.editor_text(node))
     agent:refresh()
   end)

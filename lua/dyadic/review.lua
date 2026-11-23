@@ -4,6 +4,7 @@
 local M = {}
 local api = vim.api
 local Files = require("dyadic.files")
+local ChangeNotes = require("dyadic.change_notes")
 
 local ns = api.nvim_create_namespace("dyadic_review")
 
@@ -538,7 +539,10 @@ local function outcome(review)
     end
   end
   local wanted = expected(review)
-  local edited = not same(wanted, content_lines(review.buf)) and " The user also edited the file during the review."
+  -- With change notes on, a note shows the user's edits instead.
+  local edited = not ChangeNotes.enabled(review.agent)
+      and not same(wanted, content_lines(review.buf))
+      and " The user also edited the file during the review."
     or ""
   local path = display(review.agent, review.path)
   if accepted == #review.hunks then
@@ -622,6 +626,16 @@ local function drop_redo(buf)
   vim.bo[buf].modified = modified
 end
 
+-- Lines as file content, ending with a newline when the buffer writes one.
+local function as_text(review, lines)
+  if #lines == 0 then
+    return ""
+  end
+  local buf = review.buf
+  local eol = not valid_buf(buf) or vim.bo[buf].eol or vim.bo[buf].fixeol
+  return table.concat(lines, "\n") .. (eol and "\n" or "")
+end
+
 -- End a review. `how`: nil when every hunk is decided; "aborted" reverts the pending hunks
 -- the user did not edit and reports nothing; "undone" when the change was undone; "closed" when the buffer went.
 local function finish(review, how)
@@ -647,6 +661,8 @@ local function finish(review, how)
     pcall(api.nvim_del_augroup_by_id, review.group)
   end
   local path = display(review.agent, review.path)
+  -- What the agent takes the file to hold after this result.
+  local believed = as_text(review, how == nil and expected(review) or review.original)
   local result
   if how == "undone" then
     result = { error = "The user undid the change to " .. path .. "." }
@@ -666,7 +682,7 @@ local function finish(review, how)
     end
   end
   if result then
-    review.reply(result)
+    review.reply(result, believed)
   end
   review.agent:render()
   start_next(review.buf)
@@ -1013,7 +1029,7 @@ local function begin(agent, buf, path, content, reply, created)
   local hunks = Files.apply(buf, content)
   close_step(buf)
   if #hunks == 0 then
-    reply({})
+    reply({}, content)
     start_next(buf)
     return
   end
@@ -1035,7 +1051,8 @@ local function begin(agent, buf, path, content, reply, created)
   agent:render()
 end
 
--- Review `content` for the file `path` in buffer `buf`, then `reply(outcome)`. `base` is the
+-- Review `content` for the file `path` in buffer `buf`, then `reply(outcome, believed)`,
+-- where `believed` is what the agent's tool takes the file to hold, or nil when it failed. `base` is the
 -- text pi changed; if the buffer no longer holds it, the change is refused. Reviews of one
 -- buffer run one at a time.
 function M.request(agent, buf, path, content, base, reply, created)

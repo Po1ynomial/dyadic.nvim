@@ -113,6 +113,10 @@ _Avoid_: block, chunk
 **Edited hunk**:
 An undecided hunk whose lines the user changed. Editing never decides a hunk; accepting an edited hunk accepts the user's version.
 
+**Change note**:
+A message dyadic gives an agent about files it has seen that changed since, by the user or anything else: at the start of a run, or in the result of an edit or write.
+_Avoid_: sync, diff notification
+
 **Review rule**:
 A path with a review setting; the nearest rule above a file decides whether changes to it are reviewed.
 _Avoid_: scope, policy
