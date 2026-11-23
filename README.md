@@ -28,6 +28,7 @@ require('dyadic').setup({
   statusline = true,
   completion = true,
   mappings = {},
+  double_escape = 'tree', -- <Esc><Esc> while idle: 'tree', 'fork', or 'none'
 })
 ```
 

@@ -498,7 +498,16 @@ through the editor; pi keeps its own matching, results, and rendering:
   This applies when the change is not reviewed (below).
 
 The model is told this once, in the tools' guidelines; results stay pi's,
-except for what a review decided.
+except for what a review decided and change notes (both below).
+
+Other tools, such as `bash`, work on the disk. After a tool other than
+`read`, `grep`, `find`, or `ls` finishes, dyadic runs |:checktime| on every
+loaded, unmodified file buffer, so they follow the agent's changes.
+'autoread' decides whether reloading asks first. Buffers with unsaved
+changes are skipped; Neovim warns about them at its next timestamp check.
+
+Without the bridge, pi reads files from disk, so save a buffer before asking
+about unsaved changes.
 
 Review                                                        *dyadic-review*
 
@@ -542,7 +551,9 @@ says `edited`, accept takes your version, and reject puts the old lines
 back. Edits next to a hunk, even on the line right beside it, stay out of
 it, so reject leaves them alone. After your decisions the model learns what
 landed: the whole change, which hunks you rejected and why, and whether you
-also edited the file.
+also edited the file; with change notes on (|dyadic-change-notes|), a diff
+of your edits instead.
+
 Rejecting all of a new file's content leaves no buffer behind; windows that
 showed it stay and show the file shown before. When the run is aborted
 during a review, accepted hunks and undecided ones you edited stay, and the
@@ -581,18 +592,8 @@ The nearest rule above a file wins, matching whole path components after
 the agent's cwd. Rules and files are compared by where they really are, so
 a rule may name a directory that does not exist yet, and a file reached
 through a symlink follows the rules of its target. Without a matching rule,
-`default` decides. For one agent,
-`:Dyadic review on` or `:Dyadic review off` overrides the rules until
-`:Dyadic review auto`.
-
-Other tools, such as `bash`, work on the disk. After a tool other than
-`read`, `grep`, `find`, or `ls` finishes, dyadic runs |:checktime| on every
-loaded, unmodified file buffer, so they follow the agent's changes.
-'autoread' decides whether reloading asks first. Buffers with unsaved
-changes are skipped; Neovim warns about them at its next timestamp check.
-
-Without the bridge, pi reads files from disk, so save a buffer before asking
-about unsaved changes.
+`default` decides. For one agent, `:Dyadic review on` or `:Dyadic review off`
+overrides the rules until `:Dyadic review auto`.
 
 Change notes                                            *dyadic-change-notes*
 
