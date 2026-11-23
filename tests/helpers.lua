@@ -178,6 +178,21 @@ function H.cursor_to_row(agent, pattern)
   error("no row matches " .. pattern, 2)
 end
 
+-- Labels the composer's omnifunc offers for `line` typed as the draft's first line.
+function H.completions(agent, line)
+  local Completion = require("dyadic.completion")
+  local ctx = Completion.context(line, 1, #line)
+  local labels = {}
+  if ctx then
+    Completion.items(agent, ctx, { sync = true, match = "prefix" }, function(items)
+      for _, item in ipairs(items) do
+        labels[#labels + 1] = item.label
+      end
+    end)
+  end
+  return labels
+end
+
 function H.current_lines()
   return vim.api.nvim_buf_get_lines(0, 0, -1, false)
 end

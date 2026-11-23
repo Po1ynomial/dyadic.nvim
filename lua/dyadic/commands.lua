@@ -3,23 +3,36 @@ local Bridge = require("dyadic.bridge")
 local Sessions = require("dyadic.sessions")
 local resolve = Sessions.resolve
 
-M.names = {
-  "model",
-  "thinking",
-  "new",
-  "resume",
-  "name",
-  "session",
-  "compact",
-  "tree",
-  "fork",
-  "clone",
-  "export",
-  "copy",
-  "settings",
-  "reload",
-  "quit",
+-- The commands dyadic handles itself, in the order of :h dyadic-pi-commands, which uses
+-- the same hints and descriptions.
+M.builtins = {
+  { name = "model", hint = "[provider/model or search]", description = "Select a model" },
+  { name = "thinking", hint = "[level]", description = "Select a supported thinking level" },
+  { name = "new", description = "Start a fresh session in this agent" },
+  { name = "resume", description = "Switch to a saved session with the session picker" },
+  { name = "name", hint = "[name]", description = "Set or show the session name" },
+  { name = "session", description = "Show identity, file, usage, context" },
+  { name = "compact", hint = "[instructions]", description = "Compact through pi" },
+  { name = "tree", description = "Move within the session tree with the tree picker" },
+  {
+    name = "fork",
+    hint = "[entry-id]",
+    description = "Fork from a user message and restore its text to the draft",
+  },
+  { name = "clone", description = "Clone the active branch" },
+  { name = "export", hint = "[HTML path]", description = "Export HTML through pi" },
+  { name = "copy", description = "Copy the last assistant response" },
+  {
+    name = "settings",
+    hint = "[name] [value]",
+    description = "Auto-compaction, auto-retry, steering mode, or follow-up mode",
+  },
+  { name = "reload", description = "Reload pi's extensions, skills, prompts, and context files" },
+  { name = "quit", description = "Close this agent" },
 }
+M.names = vim.tbl_map(function(command)
+  return command.name
+end, M.builtins)
 
 local unsupported = {
   login = true,
@@ -168,6 +181,35 @@ local settings_controls = {
   ["follow-up"] = { rpc = "set_follow_up_mode", field = "mode", values = { "all", "one-at-a-time" } },
 }
 local settings_names = { "auto-compaction", "auto-retry", "steering", "follow-up" }
+local settings_descriptions = {
+  ["auto-compaction"] = "Compact the context automatically when it nears the model's limit",
+  ["auto-retry"] = "Retry automatically after transient provider errors",
+  steering = "Deliver queued steering messages all at once or one at a time",
+  ["follow-up"] = "Deliver queued follow-up messages all at once or one at a time",
+}
+
+-- The current value of a setting, when pi's state reports it.
+local function setting_value(agent, key)
+  local state = agent.state or {}
+  local current = ({
+    ["auto-compaction"] = state.autoCompactionEnabled,
+    steering = state.steeringMode,
+    ["follow-up"] = state.followUpMode,
+  })[key]
+  if type(current) == "boolean" then
+    current = current and "on" or "off"
+  end
+  return current
+end
+
+M.settings = {
+  names = settings_names,
+  descriptions = settings_descriptions,
+  values = function(key)
+    return settings_controls[key] and settings_controls[key].values
+  end,
+  current = setting_value,
+}
 
 local function configure(agent, argument, original)
   local name, value = argument:match("^(%S+)%s*(.-)$")
@@ -200,16 +242,7 @@ local function configure(agent, argument, original)
     choose(name, value)
   else
     pick(agent, settings_names, "RPC settings", function(key)
-      local state = agent.state or {}
-      local values = {
-        ["auto-compaction"] = state.autoCompactionEnabled,
-        steering = state.steeringMode,
-        ["follow-up"] = state.followUpMode,
-      }
-      local current = values[key]
-      if type(current) == "boolean" then
-        current = current and "on" or "off"
-      end
+      local current = setting_value(agent, key)
       return key .. (current ~= nil and "  " .. tostring(current) or "")
     end, choose)
   end
@@ -432,49 +465,6 @@ function M.run(agent, text)
     return false
   end
   return true
-end
-
-function M.complete(agent, prefix)
-  prefix = prefix or ""
-  if prefix ~= "" and prefix:sub(1, 1) ~= "/" then
-    prefix = "/" .. prefix
-  end
-  local result, seen = {}, {}
-  local function add(value)
-    if value:sub(1, #prefix) == prefix and not seen[value] then
-      seen[value] = true
-      result[#result + 1] = value
-    end
-  end
-  local setting, setting_prefix = prefix:match("^/settings%s+(%S+)%s+(.*)$")
-  if setting and settings_controls[setting] then
-    for _, value in ipairs(settings_controls[setting].values) do
-      if value:sub(1, #setting_prefix) == setting_prefix then
-        add("/settings " .. setting .. " " .. value)
-      end
-    end
-  elseif prefix:match("^/settings%s+") then
-    for _, name in ipairs(settings_names) do
-      add("/settings " .. name)
-    end
-  elseif prefix:match("^/thinking%s+") then
-    -- The picker queries model-specific levels; do not suggest unsupported levels.
-    for _, level in ipairs(agent.available_thinking_levels or {}) do
-      add("/thinking " .. level)
-    end
-  else
-    for _, name in ipairs(M.names) do
-      add("/" .. name)
-    end
-    for _, command in ipairs(agent.commands or {}) do
-      local name = type(command) == "table" and command.name or command
-      if type(name) == "string" and name ~= Bridge.command_name then
-        add(name:sub(1, 1) == "/" and name or "/" .. name)
-      end
-    end
-  end
-  table.sort(result)
-  return result
 end
 
 return M

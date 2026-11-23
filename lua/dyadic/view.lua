@@ -464,7 +464,7 @@ local function create_buffer(agent, ft, suffix, editable)
     vim.bo[buf].undolevels = -1
   end
   if editable and agent.config.completion ~= false then
-    vim.bo[buf].omnifunc = "v:lua.require'dyadic.view'.complete"
+    require("dyadic.completion").attach(agent, buf)
   end
   return buf
 end
@@ -576,46 +576,6 @@ function M.set_draft(agent, value)
     api.nvim_buf_set_lines(agent.composer_buf, 0, -1, false, vim.split(value or "", "\n", { plain = true }))
     render_widgets(agent)
   end
-end
-
--- Slash commands are only recognized at the start of the composer line; elsewhere, a
--- leading slash is an absolute path. Pass the decision from findstart to the match call.
-local complete_command = false
-
-function M.complete(findstart, base)
-  local buf = api.nvim_get_current_buf()
-  local agent = views[buf]
-  if not agent or buf ~= agent.composer_buf then
-    return findstart == 1 and -3 or {}
-  end
-  if findstart == 1 then
-    local line = api.nvim_get_current_line():sub(1, api.nvim_win_get_cursor(0)[2])
-    complete_command = line:sub(1, 1) == "/"
-    if complete_command then
-      return 0
-    end
-    local token = line:match("%S*$") or ""
-    return #line - #token
-  end
-  local result = {}
-  if complete_command then
-    return require("dyadic.commands").complete(agent, base)
-  end
-  local reference = base:sub(1, 1) == "@"
-  if reference then
-    base = base:sub(2)
-  end
-  local absolute = base:sub(1, 1) == "/" or base:sub(1, 1) == "~"
-  local prefix = absolute and vim.fn.expand(base) or (agent.cwd .. "/" .. base)
-  local matches = vim.fn.glob(vim.fn.escape(prefix, "*?[]{}") .. "*", false, true)
-  for _, path in ipairs(matches) do
-    local word = absolute and path or path:sub(#agent.cwd + 2)
-    if vim.fn.isdirectory(path) == 1 then
-      word = word .. "/"
-    end
-    result[#result + 1] = (reference and "@" or "") .. word
-  end
-  return result
 end
 
 render_widgets = function(agent)

@@ -1,5 +1,5 @@
 -- Scriptable stand-in for `pi --mode rpc`. Run as: nvim --clean -l tests/fakepi.lua [scenario.lua]
--- A scenario file returns a table with optional `state`, `entries`, `commands`, `prompts`, `log`,
+-- A scenario file returns a table with optional `state`, `entries`, `commands`, `models`, `prompts`, `log`,
 -- `leaf`, `labels` (entry id -> label), `bridge` (bridge command name -> { events = {...},
 -- outcome = {...} }), and `no_bridge`.
 -- Like pi, the fake reports the bridge's `dyadic` command when dyadic loads it with `-e`,
@@ -109,6 +109,29 @@ for line in io.stdin:lines() do
     ok(req, { tokens = { total = 0 }, cost = 0 })
   elseif t == "get_commands" then
     ok(req, { commands = commands })
+  elseif t == "get_available_models" then
+    ok(req, {
+      models = scenario.models or {
+        {
+          provider = "fake",
+          id = "fake-model",
+          name = "Fake",
+          contextWindow = 200000,
+          maxTokens = 8192,
+          reasoning = true,
+          input = { "text", "image" },
+        },
+        {
+          provider = "other",
+          id = "small",
+          name = "Small",
+          contextWindow = 32000,
+          maxTokens = 4096,
+          reasoning = false,
+          input = { "text" },
+        },
+      },
+    })
   elseif t == "get_available_thinking_levels" then
     ok(req, { levels = { "off", "low", "high" } })
   elseif t == "clear_queue" then

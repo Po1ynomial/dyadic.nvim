@@ -78,7 +78,9 @@ Setup is optional. Defaults:
                 share.
 `statusline`    Show which buffer a window holds and pi's session ID in the
                 statusline of dyadic's windows. Set to `false` to keep yours.
-`completion`    Set the composer's 'omnifunc' (see |dyadic-completion|).
+`completion`    Complete commands and paths in the composer, through its
+                'omnifunc' and a blink.cmp source (see
+                |dyadic-completion|). `false` turns both off.
 `mappings`      Override or disable default keys (see |dyadic-mappings|).
 `double_escape` What <Esc><Esc> does while idle: `"tree"`, `"fork"`, or
                 `"none"` (see |dyadic-double-escape|).
@@ -351,11 +353,43 @@ not replaced. Terminal support for modified Enter and Tab varies; remap those
 actions when needed.
 
                                                            *dyadic-completion*
-In the composer, |i_CTRL-X_CTRL-O| completes slash commands at the start of
-the line and paths from the agent's cwd, including `@`-prefixed path
-references. Completion plugins with an omnifunc source (such as blink.cmp's
-`complete_func` or cmp-omni) use it too. Nothing from your buffers is
-attached to a prompt unless you type it.
+The composer completes in two places:
+
+- A slash command on the draft's first line, where pi reads commands (see
+  |dyadic-pi-commands|), and the arguments of `/settings`, `/thinking`, and
+  `/model`. Built-in commands come before pi's extension, prompt, and skill
+  commands, each with its description.
+- A path after `@` at the start of a word, matched fuzzily against every
+  file and directory below the agent's cwd: `@view` finds
+  `lua/dyadic/view.lua`. The list comes from `fd`, or `rg --files` (files
+  only), or Neovim walking the directory. With `fd` or `rg` it skips what
+  `.gitignore` ignores; it includes hidden files but never `.git`. It is
+  taken once per Insert mode, so leave Insert mode to see new files. A path
+  with spaces is inserted quoted, `@"my file.md"`.
+
+Nothing else completes: plain words and bare paths are prose. Nothing from
+your buffers is attached to a prompt unless you type it.
+
+With blink.cmp installed, dyadic adds its source for composers the first
+time one enters Insert mode; nothing needs configuring. Typing `/` or `@`
+opens the menu. Accepting `/model`, `/thinking`, `/settings`, or a setting
+name opens its arguments. The documentation window shows what a command
+does, a model's context window, output limit, reasoning, and image input,
+and the start of a file. To place the source yourself, configure it under
+any name; dyadic then uses that one: >lua
+    sources = {
+      providers = {
+        dyadic = { name = "Dyadic", module = "dyadic.completion.blink" },
+      },
+    }
+<
+Do not also enable blink.cmp's `omni` source for `dyadic_composer`: it
+would list every item twice.
+Without blink.cmp, |i_CTRL-X_CTRL-O| completes the same places, with the
+descriptions in the menu and the preview. `/model` arguments need a request
+to pi, so only blink.cmp completes them, and `/thinking` offers the levels
+pi reported the last time they were asked for. Other completion plugins
+with an omnifunc source, such as cmp-omni, use the 'omnifunc' too.
 
 ==============================================================================
 8. PI COMMANDS                                            *dyadic-pi-commands*

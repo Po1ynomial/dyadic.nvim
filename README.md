@@ -10,6 +10,7 @@ The bridge also routes pi's `read`, `edit`, and `write` through your buffers: th
 
 - Neovim 0.11 or newer.
 - `pi` on `PATH`, with provider authentication and pi configuration already set up. The bridge needs pi 1.5.2 or newer.
+- Optional: [blink.cmp](https://github.com/saghen/blink.cmp) for the completion menu, and `fd` or `rg` so `@` path completion skips what `.gitignore` ignores.
 
 ## Installation
 
@@ -26,7 +27,7 @@ require('dyadic').setup({
   sidebar = { side = 'right', width = 0.35, min_width = 40, max_width = 120 },
   composer = { min_height = 3, max_height = 0.4 },
   statusline = true,
-  completion = true,
+  completion = true, -- /commands and @paths, through 'omnifunc' and blink.cmp
   mappings = {},
   double_escape = 'tree', -- <Esc><Esc> while idle: 'tree', 'fork', or 'none'
 })
@@ -36,7 +37,7 @@ Run `:Dyadic` to show an agent. Press `i` (or `a`, `o`, and the like) in the his
 
 ## Documentation
 
-The full reference is in Neovim's help: `:help dyadic`. It covers windows and placements (`:help dyadic-windows`), the history and details (`:help dyadic-history`), the composer, mappings, pi commands, the Lua API, file reloading, the tree picker (`:help dyadic-tree`), the session picker (`:help dyadic-sessions`), reviews (`:help dyadic-review`), change notes (`:help dyadic-change-notes`), the bridge (`:help dyadic-bridge`), and protocol limits. [GLOSSARY.md](GLOSSARY.md) defines the terms the code and docs use.
+The full reference is in Neovim's help: `:help dyadic`. It covers windows and placements (`:help dyadic-windows`), the history and details (`:help dyadic-history`), the composer, completion (`:help dyadic-completion`), mappings, pi commands, the Lua API, file reloading, the tree picker (`:help dyadic-tree`), the session picker (`:help dyadic-sessions`), reviews (`:help dyadic-review`), change notes (`:help dyadic-change-notes`), the bridge (`:help dyadic-bridge`), and protocol limits. [GLOSSARY.md](GLOSSARY.md) defines the terms the code and docs use.
 
 ## Development
 

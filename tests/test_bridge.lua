@@ -25,7 +25,7 @@ T("loads the bridge by default and hides its command", function()
   local agent = H.open()
   ok(Bridge.available(agent))
   eq(Bridge.args(agent.config), { "-e", Bridge.path() })
-  eq(Commands.complete(agent, "/dy"), {})
+  eq(H.completions(agent, "/dy"), {})
   eq(messages(), {})
 end)
 
