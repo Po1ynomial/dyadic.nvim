@@ -855,7 +855,7 @@ override them.
   DyadicTreeLine          Tree picker connectors        Comment
   DyadicTreeActive        Active branch, fold marks     Identifier
   DyadicTreeLabel         Labels in the tree picker     DiagnosticWarn
-  DyadicSessionNamed      Session picker: named ones    DiagnosticWarn
+  DyadicSessionNamed      Session picker: named ones    DyadicTitle
   DyadicSessionDir        Session picker: directories   Directory
   DyadicReviewAdd         Lines a reviewed change adds  DiffAdd
   DyadicReviewDelete      Lines it removes              DiffDelete

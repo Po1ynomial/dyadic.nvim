@@ -109,7 +109,7 @@ local function define_highlights()
     DyadicTreeLine = "Comment",
     DyadicTreeActive = "Identifier",
     DyadicTreeLabel = "DiagnosticWarn",
-    DyadicSessionNamed = "DiagnosticWarn",
+    DyadicSessionNamed = "DyadicTitle",
     DyadicSessionDir = "Directory",
     DyadicReviewAdd = "DiffAdd",
     DyadicReviewDelete = "DiffDelete",

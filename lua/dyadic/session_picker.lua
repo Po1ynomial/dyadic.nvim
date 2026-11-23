@@ -420,7 +420,8 @@ local function preview(p)
     local function clean(text)
       return text and (text:gsub("%s+", " ")) or nil
     end
-    add(clean(title_of(details)), details.name and "DyadicSessionNamed" or "DyadicTitle")
+    -- Named sessions stand out, as in the list.
+    add(clean(title_of(details)), details.name and "DyadicSessionNamed" or nil)
     add("")
     if details.name and details.first then
       add("> " .. clean(details.first), "DyadicMeta")

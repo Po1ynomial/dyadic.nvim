@@ -160,6 +160,26 @@ T("the preview shows the session under the cursor", function()
   ok(p.preview_win)
 end)
 
+T("session names look like titles; unnamed sessions are plain text", function()
+  local dir = sessions({ { id = "named", name = "my session", age = 5 }, { id = "plain", age = 50 } })
+  local p = open(dir)
+  eq(vim.api.nvim_get_hl(0, { name = "DyadicSessionNamed" }).link, "DyadicTitle")
+  local function title_groups()
+    local ns = vim.api.nvim_get_namespaces().dyadic_picker_preview
+    local marks = vim.api.nvim_buf_get_extmarks(p.preview_buf, ns, { 0, 0 }, { 0, -1 }, { details = true })
+    return vim.tbl_map(function(mark)
+      return mark[4].hl_group
+    end, marks)
+  end
+  eq(title_groups(), { "DyadicSessionNamed" })
+  vim.api.nvim_win_set_cursor(p.list_win, { 2, 0 })
+  vim.api.nvim_exec_autocmds("CursorMoved", { buffer = p.list_buf })
+  H.wait(function()
+    return preview(p)[1] == "plain"
+  end, 3000, "the unnamed session's preview")
+  eq(title_groups(), {})
+end)
+
 T("delete asks, refuses sessions live agents show, and copies paths", function()
   local dir, paths = sessions({ { id = "keep", age = 5 }, { id = "drop", age = 50 } })
   local p = open(dir)
