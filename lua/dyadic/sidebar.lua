@@ -107,6 +107,17 @@ function M.show(agent)
   return win
 end
 
+-- A new history window takes the place of the sidebar's closed one, as when the composer
+-- gets its history back after :only.
+function M.replace(tab, old, new)
+  local state = sidebars[tab]
+  if state and state.win == old then
+    state.win = new
+    vim.wo[new].winfixwidth = true
+    require("dyadic.pin").pin(new, api.nvim_win_get_buf(new))
+  end
+end
+
 -- Close this tab's sidebar. Returns false when it is the only thing in the tab.
 function M.close(tab)
   tab = tab or api.nvim_get_current_tabpage()

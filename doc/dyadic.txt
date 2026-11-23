@@ -69,7 +69,7 @@ Setup is optional. Defaults:
 `bridge`        Load dyadic's pi extension (|dyadic-bridge|). With `false`,
                 pi runs stock and the features that need the bridge are
                 unavailable.
-`placement`     Where the history window goes: `"sidebar"` or `"free"`
+`placement`     Where the pair goes: `"sidebar"` or `"free"`
                 (see |dyadic-windows|).
 `sidebar`       Side of the tab, starting width as a share of the editor,
                 and its limits in columns.
@@ -130,28 +130,28 @@ the log's path.
 ==============================================================================
 4. WINDOWS                                                    *dyadic-windows*
 
-The history window is the center. The composer is a split directly below one
-history window, and an agent has at most one composer window in each tab:
-opening it under another history window of the tab moves it there. Composer
-windows in different tabs show the same draft.
+The history window and the composer, a split directly below it, form a
+pair: neither shows without the other. An agent has at most one pair in each
+tab, and pairs in different tabs show the same draft.
 
-While attached, the history window and its composer stay together:
+The pair stays together:
 - The composer's height follows its content (draft, widgets, and footer)
   within `composer.min_height` and `composer.max_height`; resizing it by
   hand is undone.
 - A composer moved elsewhere, for example with CTRL-W K, is put back.
-- Windows split inside the pair, such as |:vsplit| in the history window,
-  move out beside the window you last used outside it.
-- The composer refuses other buffers (|dyadic-own-windows|).
-- Showing another buffer in the history window closes the composer first;
-  the draft is kept.
-- Closing the history window closes its composer. Closing the composer
-  leaves the history window.
-- |:q| on a history window whose only neighbour is its composer closes both,
-  as if the history window were alone. A composer left alone otherwise, as
-  after |:only|, shows the history instead.
-
-Without a composer, a history window is an ordinary window.
+- Closing either window closes both. When they are all the tab has, |:q|
+  closes the tab or quits Neovim, and |:close| leaves them open.
+- |:only| in either window keeps both.
+- A split of either window, such as |:vsplit| in the history, is undone.
+  Other windows split inside the pair, such as |:new|, move out beside the
+  window you last used outside it.
+- The composer refuses other buffers (|dyadic-own-windows|). Showing
+  another buffer in the history window closes the composer; the draft is
+  kept.
+- Showing the history or composer buffer in another window, as with
+  |:buffer|, moves the tab's pair to that window with the free placement.
+  With the sidebar, the window gets its buffer back and the sidebar shows
+  the agent.
 
                                                         *dyadic-own-windows*
 The sidebar, the composer, and dyadic's floats (the tree picker, the
@@ -181,9 +181,8 @@ the tab with one agent's history and its composer.
   any other way, such as |:close| or |CTRL-W_o| in the sidebar, a new one
   opens across from it with the file you used last.
 
-`"free"`: `:Dyadic` shows the history in a history window of the tab, or in
-the current window, with the composer below. The history buffer can be shown
-in any number of windows.
+`"free"`: `:Dyadic` shows the agent's pair of the tab, or turns the current
+window into it.
 
 ==============================================================================
 5. HISTORY                                                    *dyadic-history*
@@ -300,7 +299,7 @@ History:
   gf                `goto_file`          In the sidebar: open in the main area
   gF                `goto_file_line`     Same, at the line number
   <C-w>f            `split_file`         Same, in a split
-  <localleader>i    `focus_composer`     Open the composer below this window
+  <localleader>i    `focus_composer`     Focus the composer
 
 Actions without a default key: `thinking`, `cycle_model`, `copy`, `new`,
 `resume`, `tree`, `fork`. Every action has a buffer-local <Plug> mapping

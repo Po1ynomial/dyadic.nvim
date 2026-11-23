@@ -145,7 +145,7 @@ function M.show(agent)
   return agent
 end
 
--- Hide or show the last agent: the sidebar of this tab, or its free history window.
+-- Hide or show the last agent: the sidebar of this tab, or its free pair.
 function M.toggle()
   local Composer, Sidebar = require("dyadic.composer"), require("dyadic.sidebar")
   if config.placement == "sidebar" then
@@ -161,18 +161,11 @@ function M.toggle()
   if not agent or agent.closed then
     return M.show()
   end
-  local wins = vim.tbl_filter(function(win)
-    return vim.api.nvim_win_get_config(win).relative == ""
-  end, vim.fn.win_findbuf(agent.history_buf))
-  local here = vim.tbl_filter(function(win)
-    return vim.api.nvim_win_get_tabpage(win) == vim.api.nvim_get_current_tabpage()
-  end, wins)
-  if #here == 0 then
+  if not Composer.anchor(agent) then
     return M.show(agent)
   end
-  Composer.close(agent)
-  for _, win in ipairs(here) do
-    pcall(vim.api.nvim_win_close, win, false)
+  if not Composer.hide(agent) then
+    vim.notify("Dyadic: the history and composer are the only windows in this tab", vim.log.levels.WARN)
   end
 end
 

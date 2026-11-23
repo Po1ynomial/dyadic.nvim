@@ -49,6 +49,15 @@ T(":q on a lone history and composer is refused and keeps the composer", functio
   eq(pcall(vim.cmd, "quit"), false)
   H.settle()
   eq(Composer.anchor(agent), anchor)
+  -- From the composer, the history comes back above it.
+  local win = Composer.window(agent)
+  vim.api.nvim_set_current_win(win)
+  eq(pcall(vim.cmd, "quit"), false)
+  H.settle()
+  eq(Composer.window(agent), win)
+  eq(vim.api.nvim_win_get_buf(Composer.anchor(agent)), agent.history_buf)
+  eq(#vim.api.nvim_list_wins(), 2)
+  eq(vim.api.nvim_get_current_win(), win)
   allow_exit()
 end)
 

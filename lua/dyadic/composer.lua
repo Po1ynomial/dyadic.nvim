@@ -1,8 +1,8 @@
 -- The composer window. An agent has at most one in each tab, all showing its one composer
--- buffer; each is a split directly below one history window, its anchor, and stays there
--- while attached: its height is computed and restored, a moved composer is put back,
--- windows split into the pair are moved out, and a composer never stays alone. Without a
--- composer a history window is an ordinary window.
+-- buffer; each is a split directly below one history window, its anchor, and the two form
+-- a pair: neither shows without the other. Its height is computed and restored, a moved
+-- composer is put back, closing either window closes both, splits of either are undone,
+-- and other windows split into the pair are moved out.
 local M = {}
 local api = vim.api
 
@@ -281,42 +281,79 @@ function M.attach(agent, anchor, focus)
   return win
 end
 
--- Close the agent's composer in a tab, the current one by default.
+-- Close the agent's composer in a tab, the current one by default, leaving its history
+-- window to the caller. The composer stays when it is all the tab has.
 function M.close(agent, tab)
   tab = tab or api.nvim_get_current_tabpage()
   local state = state_of(agent, tab)
   set_state(agent, tab, nil)
-  if state and valid_win(state.win) then
-    if #tiled(api.nvim_win_get_tabpage(state.win)) > 1 then
-      pcall(api.nvim_win_close, state.win, true)
-    else
-      M.to_history(agent, state.win)
-    end
+  if state and valid_win(state.win) and #tiled(api.nvim_win_get_tabpage(state.win)) > 1 then
+    pcall(api.nvim_win_close, state.win, true)
   end
 end
 
--- A composer never stays alone: its window shows the history instead.
-function M.to_history(agent, win)
-  for tab, state in pairs(attached[agent] or {}) do
-    if state.win == win then
-      set_state(agent, tab, nil)
-    end
+-- Hide the agent's pair in a tab, the current one by default. Returns false when the pair
+-- is all the tab has.
+function M.hide(agent, tab)
+  tab = tab or api.nvim_get_current_tabpage()
+  local state = state_of(agent, tab)
+  if not state then
+    return true
   end
-  require("dyadic.pin").unpin(win)
-  vim.wo[win].winfixheight = false
-  api.nvim_win_set_buf(win, agent.history_buf)
-  view().adopt(win)
+  local others = vim.tbl_filter(function(win)
+    return win ~= state.win and win ~= state.anchor
+  end, tiled(tab))
+  if #others == 0 then
+    return false
+  end
+  set_state(agent, tab, nil)
+  pcall(api.nvim_win_close, state.win, true)
+  pcall(api.nvim_win_close, state.anchor, true)
+  return true
+end
+
+-- Open a history window above a composer that lost its own and make them a pair again.
+local function rejoin(agent, tab, state)
+  local ok, anchor = pcall(api.nvim_open_win, agent.history_buf, false, { split = "above", win = state.win })
+  if not ok then
+    set_state(agent, tab, nil)
+    return
+  end
+  view().adopt(anchor)
+  sidebar().replace(tab, state.anchor, anchor)
+  state.anchor = anchor
+  resize(agent, state)
 end
 
 local function check_agent(agent, tab, state)
   local win, anchor = state.win, state.anchor
-  if agent.closed or not valid_win(win) then
+  if agent.closed then
     set_state(agent, tab, nil)
     return
   end
-  -- The history window closed or shows another buffer: the composer goes too.
-  if not valid_win(anchor) or api.nvim_win_get_buf(anchor) ~= agent.history_buf then
-    M.close(agent, tab)
+  local has_win = valid_win(win)
+  local has_anchor = valid_win(anchor) and api.nvim_win_get_buf(anchor) == agent.history_buf
+  if not has_win and not has_anchor then
+    set_state(agent, tab, nil)
+    return
+  end
+  -- Closing either window closes both, unless they are all the tab has.
+  if not has_win then
+    if #tiled(tab) > 1 then
+      set_state(agent, tab, nil)
+      pcall(api.nvim_win_close, anchor, true)
+    else
+      M.attach(agent, anchor, false)
+    end
+    return
+  end
+  if not has_anchor then
+    if valid_win(anchor) or #tiled(tab) > 1 then
+      -- The history window shows another buffer now, or closed beside other windows.
+      M.close(agent, tab)
+    else
+      rejoin(agent, tab, state)
+    end
     return
   end
   for new in pairs(created) do
@@ -336,22 +373,89 @@ local function check_agent(agent, tab, state)
   resize(agent, state)
 end
 
--- Windows that show a composer buffer without being an attached composer.
-local function check_strays()
-  local agents, composers = {}, {}
+-- Ordinary windows that show an agent's history or composer buffer outside its pairs, with
+-- that agent: { win, agent } items.
+local function outsiders()
+  local owners, members, result = {}, {}, {}
   for _, agent in ipairs(require("dyadic").list()) do
-    agents[agent.composer_buf] = agent
+    owners[agent.history_buf], owners[agent.composer_buf] = agent, agent
   end
   for _, item in ipairs(all()) do
-    composers[item[3].win] = true
+    members[item[3].win], members[item[3].anchor] = true, true
   end
   for _, win in ipairs(api.nvim_list_wins()) do
-    local agent = agents[api.nvim_win_get_buf(win)]
-    if agent and not composers[win] and not is_float(win) then
-      if #tiled(api.nvim_win_get_tabpage(win)) > 1 then
-        pcall(api.nvim_win_close, win, true)
-      else
-        M.to_history(agent, win)
+    local agent = owners[api.nvim_win_get_buf(win)]
+    if agent and not members[win] and not is_float(win) then
+      result[#result + 1] = { win, agent }
+    end
+  end
+  return result
+end
+
+-- The current tab's windows and their sizes at the end of the last check.
+local sizes
+
+local function snapshot()
+  sizes = { tab = api.nvim_get_current_tabpage(), wins = api.nvim_tabpage_list_wins(0), cmd = vim.fn.winrestcmd() }
+end
+
+-- A split of a pair's window is undone, and the cursor goes back to the window split.
+-- Closing the split may hand its space to another window; the sizes from before it come
+-- back when the windows are the same again.
+local function undo_splits()
+  local undone = false
+  for _, item in ipairs(outsiders()) do
+    local win = item[1]
+    if created[win] then
+      local buf, tab = api.nvim_win_get_buf(win), api.nvim_win_get_tabpage(win)
+      local current = api.nvim_get_current_win() == win
+      created[win] = nil
+      pcall(api.nvim_win_close, win, true)
+      undone = true
+      local state = state_of(item[2], tab)
+      if current and state then
+        local back = buf == item[2].composer_buf and state.win or state.anchor
+        if valid_win(back) then
+          api.nvim_set_current_win(back)
+        end
+      end
+    end
+  end
+  if
+    undone
+    and sizes
+    and sizes.tab == api.nvim_get_current_tabpage()
+    and vim.deep_equal(sizes.wins, api.nvim_tabpage_list_wins(0))
+  then
+    vim.cmd(sizes.cmd)
+  end
+end
+
+-- A history or composer buffer shown in another window, as with :buffer. With the free
+-- placement that window becomes the tab's pair; with the sidebar it gets its own buffer
+-- back, and the sidebar shows the agent.
+local function adopt_outsiders()
+  for _, item in ipairs(outsiders()) do
+    local win, agent = item[1], item[2]
+    local tab = api.nvim_win_get_tabpage(win)
+    local current = api.nvim_get_current_win() == win
+    if agent.config.placement == "free" then
+      M.hide(agent, tab)
+      if api.nvim_win_get_buf(win) ~= agent.history_buf then
+        api.nvim_win_set_buf(win, agent.history_buf)
+      end
+      view().adopt(win)
+      M.attach(agent, win, current)
+    else
+      local previous = api.nvim_win_call(win, function()
+        return vim.fn.bufnr("#")
+      end)
+      if previous < 1 or previous == agent.history_buf or previous == agent.composer_buf then
+        previous = require("dyadic.files").recent() or api.nvim_create_buf(true, false)
+      end
+      api.nvim_win_set_buf(win, previous)
+      if current and tab == api.nvim_get_current_tabpage() then
+        require("dyadic").show(agent)
       end
     end
   end
@@ -361,12 +465,14 @@ function M.check()
   check_pending = false
   -- A forced buffer switch in the sidebar is undone before it looks like a closed pair.
   require("dyadic.pin").check()
+  undo_splits()
   for _, item in ipairs(all()) do
     check_agent(item[1], item[2], item[3])
   end
-  check_strays()
+  adopt_outsiders()
   sidebar().check(created)
   created = {}
+  snapshot()
 end
 
 function M.schedule_check()
@@ -386,28 +492,38 @@ function M.dispose(agent)
   end
 end
 
--- `:q` on a history window whose only neighbour is its composer: close the composer first,
--- so the quit behaves as if the history were alone. When quitting Neovim is refused, the
--- composer comes back.
+-- `:q` in a pair that is all its tab has: close the other window first, so the quit
+-- behaves as if the current one were alone. When quitting Neovim is refused, the other
+-- window comes back.
 local function quit_pre()
   local current = api.nvim_get_current_win()
   local refused = #api.nvim_list_tabpages() == 1 and require("dyadic.quit_guard").blocks_exit()
   for _, item in ipairs(all()) do
     local agent, tab, state = item[1], item[2], item[3]
-    if state.anchor == current and valid_win(state.win) then
+    local partner = state.anchor == current and state.win or state.win == current and state.anchor or nil
+    if partner and valid_win(partner) then
       local others = vim.tbl_filter(function(win)
-        return win ~= current and win ~= state.win
-      end, tiled(api.nvim_win_get_tabpage(current)))
+        return win ~= current and win ~= partner
+      end, tiled(tab))
       if #others == 0 then
         set_state(agent, tab, nil)
-        pcall(api.nvim_win_close, state.win, true)
         if refused then
+          -- Scheduled before the close, so it runs before the checks the close schedules.
           vim.schedule(function()
-            if not agent.closed and valid_win(current) and api.nvim_win_get_buf(current) == agent.history_buf then
+            if agent.closed or not valid_win(current) then
+              return
+            end
+            local buf = api.nvim_win_get_buf(current)
+            if buf == agent.history_buf then
               M.attach(agent, current, false)
+            elseif buf == agent.composer_buf then
+              local restored = { win = current, anchor = partner }
+              set_state(agent, tab, restored)
+              rejoin(agent, tab, restored)
             end
           end)
         end
+        pcall(api.nvim_win_close, partner, true)
       end
     end
   end

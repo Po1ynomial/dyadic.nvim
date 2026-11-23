@@ -39,8 +39,12 @@ The read-only buffer that shows the messages of an agent's current session.
 _Avoid_: transcript, log, output
 
 **Composer**:
-The editable buffer, and its window, where the next message is written. It belongs to one history window.
+The editable buffer, and its window, where the next message is written. Its window sits directly below a history window, and the two form a pair.
 _Avoid_: input, prompt, editor
+
+**Pair**:
+A history window with its composer window below it. Neither shows without the other: they open, close, and hide together. An agent has at most one pair in each tab.
+_Avoid_: chat window, panel
 
 **Draft**:
 The unsent text in the composer. It outlives the composer window and is cleared on submit.
@@ -51,15 +55,15 @@ The lines below the draft that show context use, cost, model, thinking level, an
 _Avoid_: status block, metadata lines
 
 **Placement**:
-Where a history window goes on screen: in the sidebar or free.
+Where a pair goes on screen: in the sidebar or free.
 _Avoid_: layout, mode
 
 **Sidebar**:
-The placement that keeps one history window, and its composer, in a column at the edge of a tab.
+The placement that keeps one pair in a column at the edge of a tab.
 _Avoid_: panel, drawer
 
 **Free**:
-The placement that shows a history window wherever the user puts it.
+The placement that shows a pair wherever the user puts it.
 _Avoid_: current, floating
 
 **Main area**:
