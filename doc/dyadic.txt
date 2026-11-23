@@ -296,9 +296,6 @@ Composer:
   <M-Up>            `dequeue`            Return queued input to the draft
   <C-l>             `model`              Select a model
   <S-Tab>           `cycle_thinking`     Cycle thinking level
-  <localleader>s    `settings`           Select an RPC-supported setting
-  <localleader>i    `focus_composer`     Focus the composer
-  <localleader>r    `focus_history`      Focus the history
 
 History:
 
@@ -310,7 +307,6 @@ History:
   gf                `goto_file`          In the sidebar: open in the main area
   gF                `goto_file_line`     Same, at the line number
   <C-w>f            `split_file`         Same, in a split
-  <localleader>i    `focus_composer`     Focus the composer
   i                 `insert`             Insert in the composer's draft at
                                        its cursor
   a                 `append`             Same, after its cursor
@@ -320,11 +316,12 @@ History:
   O                 `open_above`         Same, on a new line before it
 
 The history is read-only, so these keys take the place of Vim's own. With
-an empty draft, each one just starts Insert mode.
+an empty draft, each one just starts Insert mode. CTRL-W j and CTRL-W k move
+between the history and the composer, which always sits right below it.
 
-Actions without a default key: `thinking`, `cycle_model`, `copy`, `new`,
-`resume`, `tree`, `fork`. Every action has a buffer-local <Plug> mapping
-named after it, for example `<Plug>(DyadicSubmit)`,
+Actions without a default key: `thinking`, `cycle_model`, `copy`,
+`settings`, `new`, `resume`, `tree`, `fork`. Every action has a buffer-local
+<Plug> mapping named after it, for example `<Plug>(DyadicSubmit)`,
 `<Plug>(DyadicToggleGroup)`, `<Plug>(DyadicCopy)`.
 
 Override or disable defaults by action name:

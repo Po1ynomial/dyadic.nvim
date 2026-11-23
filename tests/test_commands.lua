@@ -73,16 +73,27 @@ T("/hotkeys points to native mapping lists", function()
   ok(not vim.tbl_contains(Commands.complete(agent, "/h"), "/hotkeys"))
 end)
 
-T("focus actions work through the Lua API", function()
+T(":Dyadic composer focuses the last agent's composer from anywhere", function()
   local agent = H.open()
-  -- From any buffer, actions go to the last agent used.
   vim.cmd("tabnew")
-  require("dyadic").action("focus_composer")
+  require("dyadic").command("composer")
   eq(vim.api.nvim_get_current_buf(), agent.composer_buf)
   vim.api.nvim_set_current_win(H.history_win(agent))
-  require("dyadic").action("focus_composer")
+  require("dyadic").command("composer")
   eq(vim.api.nvim_get_current_buf(), agent.composer_buf)
-  require("dyadic").action("focus_history")
+end)
+
+T("focus actions are gone; window commands move within the pair", function()
+  local agent = H.open()
+  for _, name in ipairs({ "focus_composer", "focus_history" }) do
+    eq(require("dyadic.view").actions[name], nil, name)
+    eq(vim.fn.maparg("<localleader>i", "n", false, true).buffer, nil, name)
+  end
+  eq(vim.fn.maparg("<localleader>s", "n"), "")
+  vim.api.nvim_set_current_win(H.history_win(agent))
+  vim.cmd("wincmd j")
+  eq(vim.api.nvim_get_current_buf(), agent.composer_buf)
+  vim.cmd("wincmd k")
   eq(vim.api.nvim_get_current_buf(), agent.history_buf)
 end)
 

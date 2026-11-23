@@ -427,8 +427,6 @@ end
 function Agent:action(name)
   if View.actions[name] and View.actions[name][3] == "history" then
     View.action(self, name)
-  elseif name == "focus_composer" or name == "focus_history" then
-    View.focus(self, name == "focus_composer")
   elseif name == "cycle_thinking" or name == "cycle_model" then
     self:request(name == "cycle_model" and "cycle_model" or "cycle_thinking_level", {}, function(err)
       if not err then
