@@ -277,7 +277,9 @@ function M.check(created)
           apply_width(state, agent)
         end
         if tab == api.nvim_get_current_tabpage() then
-          if state.columns ~= vim.o.columns then
+          -- A manual resize creates no windows; a split moved out of the sidebar may have
+          -- changed its width.
+          if state.columns ~= vim.o.columns or next(created) ~= nil then
             apply_width(state, agent)
           elseif api.nvim_win_get_width(state.win) ~= state.width then
             -- A manual resize: remember it as a share of the editor width.
