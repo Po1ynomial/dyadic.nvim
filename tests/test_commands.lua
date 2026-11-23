@@ -3,6 +3,39 @@ local eq, ok = H.eq, H.ok
 local T = H.suite()
 local Commands = require("dyadic.commands")
 
+T("built-in commands leave the composer as they run and come back when they fail", function()
+  local agent = H.open({ fail = { compact = "compact boom" } })
+  agent:set_draft("/session")
+  agent:submit()
+  eq(agent:get_draft(), "")
+  H.wait(function()
+    return vim.iter(_G.notes):any(function(note)
+      return note.msg:find("Dyadic: Session:", 1, true) ~= nil
+    end)
+  end, 3000, "the session notice")
+  agent:set_draft("/compact now")
+  agent:submit()
+  eq(agent:get_draft(), "")
+  H.wait(function()
+    return agent:get_draft() == "/compact now"
+  end, 3000, "the failed command to come back")
+  -- What was typed meanwhile stays.
+  agent:submit()
+  agent:set_draft("typed")
+  H.settle(200)
+  eq(agent:get_draft(), "typed")
+  -- A refusal keeps the text to fix; a failure found later brings it back.
+  agent:set_draft("/new now")
+  agent:submit()
+  eq(agent:get_draft(), "/new now")
+  agent:set_draft("/thinking bogus")
+  agent:submit()
+  eq(agent:get_draft(), "")
+  H.wait(function()
+    return agent:get_draft() == "/thinking bogus"
+  end, 3000, "the unavailable level to come back")
+end)
+
 T("unsupported TUI commands are rejected locally", function()
   local agent = H.open()
   agent:set_draft("/login")

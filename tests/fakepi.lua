@@ -1,5 +1,6 @@
 -- Scriptable stand-in for `pi --mode rpc`. Run as: nvim --clean -l tests/fakepi.lua [scenario.lua]
 -- A scenario file returns a table with optional `state`, `entries`, `commands`, `models`, `prompts`, `log`,
+-- `fail` (request type -> error message),
 -- `leaf`, `labels` (entry id -> label), `bridge` (bridge command name -> { events = {...},
 -- outcome = {...} }), and `no_bridge`.
 -- Like pi, the fake reports the bridge's `dyadic` command when dyadic loads it with `-e`,
@@ -97,7 +98,9 @@ for line in io.stdin:lines() do
     log:flush()
   end
   local t = req.type
-  if t == "get_state" then
+  if (scenario.fail or {})[t] then
+    fail(req, scenario.fail[t])
+  elseif t == "get_state" then
     local data = vim.deepcopy(state)
     data._env_nvim = os.getenv("NVIM") or vim.NIL
     ok(req, data)

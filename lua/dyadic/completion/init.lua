@@ -10,6 +10,7 @@
 --   doc    documentation, Markdown
 --   sort   the order when scores tie
 --   path   a file or directory to preview
+--   submit whether accepting the item submits the draft: it completes a command
 --   reshow whether arguments follow, so the menu opens again after accepting
 local Bridge = require("dyadic.bridge")
 local Commands = require("dyadic.commands")
@@ -87,14 +88,15 @@ local function command_items(agent)
   local items, seen = {}, {}
   for _, command in ipairs(Commands.builtins) do
     seen[command.name] = true
+    -- As in pi, accepting a built-in runs it; without arguments, a picker asks for them.
     items[#items + 1] = {
-      word = "/" .. command.name .. (command.hint and " " or ""),
+      word = "/" .. command.name,
       label = "/" .. command.name,
       kind = "builtin",
       menu = command.hint,
       doc = command.description,
       sort = "1 " .. command.name,
-      reshow = command.name == "model" or command.name == "thinking" or command.name == "settings",
+      submit = true,
     }
   end
   local order = { extension = 2, prompt = 3, skill = 4 }
@@ -111,8 +113,9 @@ local function command_items(agent)
       if type(info.path) == "string" and info.path ~= "" then
         doc = (doc and doc .. "\n\n" or "") .. "`" .. vim.fn.fnamemodify(info.path, ":~") .. "`"
       end
+      -- pi's commands often take text, such as a skill's task: insert them.
       items[#items + 1] = {
-        word = "/" .. name,
+        word = "/" .. name .. " ",
         label = "/" .. name,
         kind = order[source] and source or "extension",
         menu = source,
@@ -151,6 +154,7 @@ local function value_items(agent, setting)
       kind = "value",
       menu = value == current and "current" or nil,
       sort = string.format("%02d", index),
+      submit = true,
     }
   end
   return items
@@ -166,6 +170,7 @@ local function level_items(agent, levels)
       kind = "value",
       menu = level == current and "current" or nil,
       sort = string.format("%02d", index),
+      submit = true,
     }
   end
   return items
@@ -214,6 +219,7 @@ local function model_items(agent, models)
         menu = type(model.name) == "string" and model.name or nil,
         doc = #lines > 0 and table.concat(lines, "\n") or nil,
         sort = (is_current and "0 " or "1 ") .. key,
+        submit = true,
       }
     end
   end
@@ -496,10 +502,24 @@ function M.omnifunc(findstart, base)
         menu = item.menu,
         info = doc,
         equal = item.path and 1 or nil,
+        user_data = (item.submit or item.reshow) and { dyadic = { submit = item.submit, reshow = item.reshow } } or nil,
       }
     end
   end)
   return result
+end
+
+-- Submit `agent`'s draft after accepting an item that completes a command, as <Esc> and
+-- submit would: pickers the command opens start in Normal mode.
+function M.submit(agent)
+  vim.schedule(function()
+    vim.cmd.stopinsert()
+    vim.schedule(function()
+      if not agent.closed then
+        agent:submit()
+      end
+    end)
+  end)
 end
 
 local registered = false
@@ -532,6 +552,13 @@ end
 
 local group = api.nvim_create_augroup("DyadicCompletion", { clear = true })
 
+-- The key that ended Insert mode completion. CompleteDone's reason cannot tell: Neovim 0.12
+-- reports "accept" also when <Esc> or a typed character ends it.
+local last_key
+vim.on_key(function(key)
+  last_key = key
+end, api.nvim_create_namespace("dyadic_completion"))
+
 -- Set up completion in `agent`'s composer buffer `buf`.
 function M.attach(agent, buf)
   vim.bo[buf].omnifunc = "v:lua.require'dyadic.completion'.omnifunc"
@@ -541,6 +568,28 @@ function M.attach(agent, buf)
     buffer = buf,
     callback = function()
       M.forget(agent)
+    end,
+  })
+  -- The omnifunc's counterpart of the blink.cmp source's execute(): only CTRL-Y accepts.
+  api.nvim_create_autocmd("CompleteDone", {
+    group = group,
+    buffer = buf,
+    callback = function()
+      local accepted = vim.v.event.reason == "accept" and last_key == vim.keycode("<C-y>")
+      local data = accepted and vim.v.completed_item.user_data
+      data = type(data) == "table" and data.dyadic
+      if type(data) ~= "table" then
+        return
+      end
+      if data.submit then
+        M.submit(agent)
+      elseif data.reshow then
+        vim.schedule(function()
+          if api.nvim_get_current_buf() == buf and api.nvim_get_mode().mode:sub(1, 1) == "i" then
+            api.nvim_feedkeys(vim.keycode("<C-x><C-o>"), "n", false)
+          end
+        end)
+      end
     end,
   })
 end

@@ -65,15 +65,27 @@ function M.listed(agent, name)
   return false
 end
 
+-- A built-in command clears its draft as soon as it runs, as in pi. When it then fails
+-- and the composer is still empty, its text comes back for another try.
 local function consume(agent, original)
   if alive(agent) and agent:get_draft() == original then
     agent:set_draft("")
   end
 end
 
+local function restore(agent, original)
+  if original and alive(agent) and agent:get_draft() == "" then
+    agent:set_draft(original)
+  end
+end
+
 local function request(agent, kind, fields, original, callback)
   return agent:request(kind, fields or {}, function(err, data)
-    if err or not alive(agent) then
+    if not alive(agent) then
+      return
+    end
+    if err then
+      restore(agent, original)
       return
     end
     data = type(data) == "table" and data or {}
@@ -81,7 +93,6 @@ local function request(agent, kind, fields, original, callback)
       agent:notice(kind .. " cancelled", "info")
       return
     end
-    consume(agent, original)
     if callback then
       callback(data)
     end
@@ -94,9 +105,10 @@ local function change(agent, kind, fields, original)
   end)
 end
 
-local function pick(agent, items, prompt, format, callback)
+local function pick(agent, items, prompt, format, callback, original)
   if #items == 0 then
     agent:notice("No " .. prompt:lower() .. " available", "warning")
+    restore(agent, original)
     return
   end
   vim.ui.select(items, { prompt = prompt, format_item = format }, function(item)
@@ -120,6 +132,9 @@ end
 
 local function model(agent, argument, original)
   agent:request("get_available_models", {}, function(err, data)
+    if err then
+      restore(agent, original)
+    end
     if err or not alive(agent) then
       return
     end
@@ -148,12 +163,15 @@ local function model(agent, argument, original)
     end
     pick(agent, models, "Models", function(item)
       return item.provider .. "/" .. item.id .. (item.name and "  " .. item.name or "")
-    end, apply)
+    end, apply, original)
   end)
 end
 
 local function thinking(agent, argument, original)
   agent:request("get_available_thinking_levels", {}, function(err, data)
+    if err then
+      restore(agent, original)
+    end
     if err or not alive(agent) then
       return
     end
@@ -167,10 +185,11 @@ local function thinking(agent, argument, original)
         apply(argument)
       else
         agent:notice("Thinking level unavailable. Choose " .. table.concat(levels, ", "), "error")
+        restore(agent, original)
       end
       return
     end
-    pick(agent, levels, "Thinking levels", nil, apply)
+    pick(agent, levels, "Thinking levels", nil, apply, original)
   end)
 end
 
@@ -217,11 +236,13 @@ local function configure(agent, argument, original)
     local control = settings_controls[key]
     if not control then
       agent:notice("RPC settings: " .. table.concat(settings_names, ", "), "error")
+      restore(agent, original)
       return
     end
     local function apply(selected)
       if not vim.tbl_contains(control.values, selected) then
         agent:notice("Use " .. table.concat(control.values, " or ") .. " for " .. key, "error")
+        restore(agent, original)
         return
       end
       local fields = {}
@@ -345,21 +366,26 @@ function M.run(agent, text)
   elseif unsupported[name] then
     agent:notice("/" .. name .. " is not available through stock pi RPC. Use pi in a terminal.", "error")
   elseif name == "model" then
+    consume(agent, text)
     model(agent, argument, text)
   elseif name == "thinking" then
+    consume(agent, text)
     thinking(agent, argument, text)
   elseif name == "settings" then
+    consume(agent, text)
     configure(agent, argument, text)
   elseif name == "new" or name == "clone" then
     if argument ~= "" then
       agent:notice("Usage: /" .. name, "error")
     else
+      consume(agent, text)
       switched(agent, name == "new" and "new_session" or "clone", {}, text)
     end
   elseif name == "resume" then
     if argument ~= "" then
       agent:notice("Usage: /resume. To open a session file, use :Dyadic --session {path}", "error")
     else
+      consume(agent, text)
       local current = agent.state.sessionFile
       require("dyadic.session_picker").open({
         where = { cwd = agent.cwd, args = agent.args, session_file = current },
@@ -372,7 +398,11 @@ function M.run(agent, text)
       })
     end
   elseif name == "fork" then
+    consume(agent, text)
     agent:request("get_fork_messages", {}, function(err, data)
+      if err then
+        restore(agent, text)
+      end
       if err or not alive(agent) then
         return
       end
@@ -385,15 +415,17 @@ function M.run(agent, text)
           end
         end
         agent:notice("No forkable user message with entry ID " .. argument, "error")
+        restore(agent, text)
         return
       end
       pick(agent, messages, "Fork messages", function(item)
         return item.entryId .. "  " .. (item.text or ""):gsub("%s+", " "):sub(1, 150)
       end, function(item)
         switched(agent, "fork", { entryId = item.entryId }, text)
-      end)
+      end, text)
     end)
   elseif name == "name" then
+    consume(agent, text)
     if argument == "" then
       request(agent, "get_state", {}, text, function(data)
         agent:notice("Session name: " .. (data.sessionName or "unnamed"), "info")
@@ -402,18 +434,21 @@ function M.run(agent, text)
       change(agent, "set_session_name", { name = argument }, text)
     end
   elseif name == "session" then
+    consume(agent, text)
     session(agent, text)
   elseif name == "compact" then
+    consume(agent, text)
     change(agent, "compact", argument ~= "" and { customInstructions = argument } or {}, text)
   elseif name == "copy" then
-    request(agent, "get_last_assistant_text", {}, nil, function(data)
+    consume(agent, text)
+    request(agent, "get_last_assistant_text", {}, text, function(data)
       if type(data.text) ~= "string" then
         agent:notice("No assistant text to copy", "warning")
+        restore(agent, text)
         return
       end
       vim.fn.setreg('"', data.text, "v")
       local ok, err = pcall(vim.fn.setreg, "+", data.text, "v")
-      consume(agent, text)
       agent:notice(
         ok and "Copied last assistant response to clipboard and unnamed register"
           or "Copied to unnamed register; clipboard unavailable: " .. tostring(err),
@@ -427,6 +462,7 @@ function M.run(agent, text)
         "error"
       )
     else
+      consume(agent, text)
       request(
         agent,
         "export_html",
@@ -443,21 +479,29 @@ function M.run(agent, text)
     else
       -- From the history, the picker starts at the entry under the cursor.
       local initial = require("dyadic.view").entry_at_cursor(agent)
-      if require("dyadic.tree_picker").open(agent, { initial = initial }) then
-        consume(agent, text)
+      consume(agent, text)
+      if not require("dyadic.tree_picker").open(agent, { initial = initial }) then
+        restore(agent, text)
       end
     end
   elseif name == "reload" then
     if agent.active then
       agent:notice("Wait for the agent to finish before /reload", "warning")
     else
-      Bridge.run(agent, "reload", nil, "/reload", function(err)
-        if not err and alive(agent) then
-          consume(agent, text)
+      consume(agent, text)
+      local started = Bridge.run(agent, "reload", nil, "/reload", function(err)
+        if not alive(agent) then
+          return
+        elseif err then
+          restore(agent, text)
+        else
           agent:notice("Reloaded extensions, skills, prompts, and context files")
           agent:refresh()
         end
       end)
+      if not started then
+        restore(agent, text)
+      end
     end
   elseif name == "quit" then
     agent:close()

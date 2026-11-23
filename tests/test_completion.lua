@@ -79,7 +79,7 @@ T("completes commands on the first line and paths after @", function()
   eq(Completion.context("see @x", 1, 4), nil)
 end)
 
-T("commands come with hints, descriptions, and sources, built-ins first", function()
+T("commands come with hints, descriptions, and sources, built-ins first, which run on accept", function()
   local agent = H.open({ commands = commands })
   eq(labels(items(agent, "/re")), { "/reload", "/resume" })
   -- Only pi's names: no /stats, and :Dyadic has `close` instead of `quit`.
@@ -88,15 +88,17 @@ T("commands come with hints, descriptions, and sources, built-ins first", functi
   local all = items(agent, "/")
   eq(vim.list_slice(labels(all), #all - 1), { "/handoff", "/skill:review" })
   local model = items(agent, "/model")[1]
-  eq(model.word, "/model ")
+  eq(model.word, "/model")
   eq(model.kind, "builtin")
   eq(model.menu, "[provider/model or search]")
   eq(model.doc, "Select a model")
-  ok(model.reshow)
+  eq({ model.submit, model.reshow or vim.NIL }, { true, vim.NIL })
   local new = items(agent, "/new")[1]
-  eq({ new.word, new.menu or vim.NIL, new.reshow or vim.NIL }, { "/new", vim.NIL, vim.NIL })
+  eq({ new.word, new.menu or vim.NIL, new.submit }, { "/new", vim.NIL, true })
+  -- pi's commands often take text: they only insert.
   local skill = items(agent, "/sk")[1]
-  eq({ skill.word, skill.kind, skill.menu }, { "/skill:review", "skill", "skill" })
+  eq({ skill.word, skill.kind, skill.menu }, { "/skill:review ", "skill", "skill" })
+  eq(skill.submit, nil)
   eq(skill.doc, "Review a change\n\n`/skills/review/SKILL.md`")
   eq(field(items(agent, "/h"), "kind"), { "extension" })
   -- Fuzzy, for blink.cmp, which ranks the rest itself.
@@ -113,6 +115,8 @@ T("/settings completes names, then values, with current ones", function()
   local values = items(agent, "/settings steering ")
   eq(labels(values), { "all", "one-at-a-time" })
   eq(field(values, "menu"), { "current", vim.NIL })
+  -- A value completes the command; a name does not.
+  eq({ names[1].submit or vim.NIL, values[1].submit }, { vim.NIL, true })
   eq(items(agent, "/settings bogus "), {})
 end)
 
@@ -122,6 +126,7 @@ T("/thinking asks pi for the model's levels; the omnifunc uses the last answer",
   local levels = items(agent, "/thinking ", { async = true })
   eq(labels(levels), { "off", "low", "high" })
   eq(field(levels, "menu"), { "current", vim.NIL, vim.NIL })
+  eq(field(levels, "submit"), { true, true, true })
   eq(labels(items(agent, "/thinking h")), { "high" })
 end)
 
@@ -131,7 +136,7 @@ T("/model lists pi's models, the current one first, only asynchronously", functi
   local models = items(agent, "/model ", { async = true })
   eq(labels(models), { "fake/fake-model", "other/small" })
   eq(field(models, "menu"), { "Fake", "Small" })
-  eq(models[1].word, "fake/fake-model")
+  eq({ models[1].word, models[1].submit }, { "fake/fake-model", true })
   eq(
     models[1].doc,
     "**Fake**\n\n- Context window: 200k tokens\n- Maximum output: 8.2k tokens\n- Reasoning: yes\n- Images: yes"
@@ -190,9 +195,20 @@ T("the omnifunc completes the same places, with menus and descriptions", functio
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { "/re", "/re", "see @b.l" })
   vim.api.nvim_win_set_cursor(0, { 1, 3 })
   eq(Completion.omnifunc(1, ""), 0)
+  local submit = { dyadic = { submit = true } }
   eq(Completion.omnifunc(0, "/re"), {
-    { word = "/reload", abbr = "/reload", info = "Reload pi's extensions, skills, prompts, and context files" },
-    { word = "/resume", abbr = "/resume", info = "Switch to a saved session with the session picker" },
+    {
+      word = "/reload",
+      abbr = "/reload",
+      info = "Reload pi's extensions, skills, prompts, and context files",
+      user_data = submit,
+    },
+    {
+      word = "/resume",
+      abbr = "/resume",
+      info = "Switch to a saved session with the session picker",
+      user_data = submit,
+    },
   })
   vim.api.nvim_win_set_cursor(0, { 2, 3 })
   eq(Completion.omnifunc(1, ""), -3)
@@ -201,6 +217,29 @@ T("the omnifunc completes the same places, with menus and descriptions", functio
   eq(Completion.omnifunc(0, "@b.l"), {
     { word = "@dir/b.lua", abbr = "dir/b.lua", info = vim.fn.fnamemodify(agent.cwd, ":~") .. "/dir/b.lua", equal = 1 },
   })
+end)
+
+T("accepting an omnifunc item that completes a command submits it", function()
+  local agent = H.open()
+  require("dyadic").command("composer")
+  -- Only CTRL-Y accepts; other ways to end completion leave the draft.
+  agent:set_draft("/na")
+  H.keys("A<C-x><C-o><Esc>")
+  H.settle()
+  eq(agent:get_draft(), "/name")
+  agent:set_draft("/na")
+  H.keys("A<C-x><C-o> x<Esc>")
+  H.settle()
+  eq(agent:get_draft(), "/name x")
+  agent:set_draft("/na")
+  H.keys("A<C-x><C-o><C-y>")
+  H.wait(function()
+    return vim.iter(_G.notes):any(function(note)
+      return note.msg == "Dyadic: Session name: unnamed"
+    end)
+  end, 3000, "the session name")
+  eq(agent:get_draft(), "")
+  eq(vim.api.nvim_get_mode().mode, "n")
 end)
 
 T("completion = false leaves the composer alone", function()
@@ -280,24 +319,28 @@ T("the blink.cmp source answers in the composer only", function()
     sortText = "1 model",
     kind = 14,
     textEdit = {
-      newText = "/model ",
+      newText = "/model",
       range = { start = { line = 0, character = 0 }, ["end"] = { line = 0, character = 3 } },
     },
     labelDetails = { description = "[provider/model or search]" },
     documentation = { kind = "markdown", value = "Select a model" },
-    data = { dyadic = { reshow = true } },
+    data = { dyadic = { submit = true } },
   })
-  local model = response.items[1]
+  response = nil
+  source:get_completions({ bufnr = agent.composer_buf, line = "/settings ", cursor = { 1, 10 } }, function(found)
+    response = found
+  end)
+  local setting = response.items[1]
+  eq(setting.data, { dyadic = { reshow = true } })
   response = nil
   source:get_completions({ bufnr = agent.composer_buf, line = "plain", cursor = { 1, 5 } }, function(found)
     response = found
   end)
   eq(response.items, {})
 
-  -- Accepting a command with arguments opens them, once the cursor moved; a file gets a
-  -- preview.
+  -- Accepting a setting name opens its values, once the cursor moved.
   local defaulted, done = false, false
-  source:execute({}, model, function()
+  source:execute({}, setting, function()
     done = true
   end, function()
     defaulted = true
@@ -308,6 +351,16 @@ T("the blink.cmp source answers in the composer only", function()
   vim.api.nvim_exec_autocmds("CursorMovedI", { buffer = agent.composer_buf })
   H.settle()
   eq(calls.shown, { { providers = { "dyadic" } } })
+  -- Accepting what completes a command submits it.
+  agent:set_draft("/name")
+  source:execute({}, { data = { dyadic = { submit = true } } }, function() end, function() end)
+  H.wait(function()
+    return vim.iter(_G.notes):any(function(note)
+      return note.msg == "Dyadic: Session name: unnamed"
+    end)
+  end, 3000, "the session name")
+  eq(agent:get_draft(), "")
+  -- A file gets a preview.
   local resolved
   local path = vim.fs.joinpath(project(), "a.txt")
   source:resolve({ label = "a.txt", data = { dyadic = { path = path } } }, function(item)
@@ -369,38 +422,64 @@ T("real blink.cmp completes commands, arguments, and paths in the composer", fun
     vim.wait(200)
     return lua("return vim.api.nvim_buf_get_lines(_G.agent.composer_buf, 0, -1, false)")
   end
+  local function sent(kind)
+    return lua("return vim.tbl_contains(_G.sent, ...)", kind)
+  end
+  lua([[
+    _G.sent = {}
+    local request = _G.agent.request
+    _G.agent.request = function(self, kind, ...)
+      table.insert(_G.sent, kind)
+      return request(self, kind, ...)
+    end
+  ]])
   local ok_run, err = pcall(function()
-    press("i/mod")
-    eq(menu()[1], "/model")
-    -- Accepting a command with arguments opens them.
+    -- Accepting a built-in runs it, in Normal mode.
+    press("i/ses")
+    eq(menu()[1], "/session")
     press("<C-y>")
-    -- blink.cmp ranks them itself; the current model leads only on a tie.
-    local models = menu()
-    table.sort(models)
-    eq(models, { "fake/fake-model", "other/small" })
-    press("<C-e><Esc>")
-    eq(draft(), { "/model " })
+    eq(draft(), { "" })
+    ok(vim.wait(3000, function()
+      return sent("get_session_stats")
+    end, 20))
+    eq(lua("return vim.api.nvim_get_mode().mode"), "n")
+    -- A setting name opens its values; a value runs the command.
     press("S/settings st")
     eq(menu(), { "steering" })
     press("<C-y>")
     eq(menu(), { "all", "one-at-a-time" })
     press("<C-y>")
+    ok(vim.wait(3000, function()
+      return sent("set_steering_mode")
+    end, 20))
+    eq(draft(), { "" })
+    -- blink.cmp ranks them itself; the current model leads only on a tie.
+    press("S/model oth")
+    eq(menu(), { "other/small" })
+    press("<C-y>")
+    ok(vim.wait(3000, function()
+      return sent("set_model")
+    end, 20))
+    -- pi's commands only insert.
+    press("S/sk")
+    eq(menu(), { "/skill:review" })
+    press("<C-y>")
     vim.wait(100)
     press("<Esc>")
-    eq(draft(), { "/settings steering all" })
+    eq(draft(), { "/skill:review " })
     -- `.` is no keyword character: blink.cmp asks again, with the whole path typed.
-    press("osee @dir/b.l")
+    press("Ssee @dir/b.l")
     eq(menu(), { "dir/b.lua" })
     press("<C-y>")
     vim.wait(100)
     press("<Esc>")
-    eq(draft(), { "/settings steering all", "see @dir/b.lua" })
+    eq(draft(), { "see @dir/b.lua" })
     press('o@"my')
     eq(menu(), { "my file.md" })
     press("<C-y>")
     vim.wait(100)
     press("<Esc>")
-    eq(draft()[3], '@"my file.md"')
+    eq(draft()[2], '@"my file.md"')
   end)
   lua("require('dyadic').shutdown()")
   vim.fn.jobstop(child)

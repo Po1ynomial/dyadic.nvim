@@ -46,7 +46,7 @@ local function to_blink(item, row, ctx, col)
     },
     labelDetails = item.menu and { description = item.menu } or nil,
     documentation = item.doc and { kind = "markdown", value = item.doc } or nil,
-    data = { dyadic = { path = item.path, reshow = item.reshow } },
+    data = { dyadic = { path = item.path, reshow = item.reshow, submit = item.submit } },
   }
 end
 
@@ -99,7 +99,10 @@ end
 function Source:execute(_, item, callback, default_implementation)
   default_implementation()
   local data = item.data and item.data.dyadic
-  if data and data.reshow then
+  local agent = Completion.agent(vim.api.nvim_get_current_buf())
+  if data and data.submit and agent then
+    Completion.submit(agent)
+  elseif data and data.reshow then
     -- The accepted text ends in a space, which triggers nothing; open the arguments. Not
     -- before the cursor move the accepted text causes: blink.cmp hides its menu on that.
     -- The space the accepted text ends in always moves the cursor.

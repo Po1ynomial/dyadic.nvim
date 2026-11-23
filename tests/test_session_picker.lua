@@ -195,13 +195,22 @@ T("/resume switches the agent to the chosen session", function()
   agent:set_draft("/resume")
   agent:submit()
   local p = H.session_picker()
+  -- As in pi, the command leaves the composer as it runs.
+  eq(agent:get_draft(), "")
   local lines = H.picker_lines(p)
   -- The agent's own session is marked current and with its agent.
   eq(lines[1], "• s1  agent " .. agent.id .. "  1  now")
   -- Choosing the current session changes nothing.
   H.keys("<CR>")
   H.settle()
-  eq(agent:get_draft(), "/resume")
+  eq(agent:get_draft(), "")
+  eq(
+    vim.iter(H.sent(log)):any(function(record)
+      return record.type == "switch_session"
+    end),
+    false
+  )
+  agent:set_draft("/resume")
   agent:submit()
   p = H.session_picker()
   vim.api.nvim_win_set_cursor(p.list_win, { 2, 0 })
@@ -211,14 +220,13 @@ T("/resume switches the agent to the chosen session", function()
       return record.type == "switch_session" and record.sessionPath == paths.s2
     end)
   end)
-  H.wait(function()
-    return agent:get_draft() == ""
-  end)
   agent:set_draft("/resume all")
   agent:submit()
   H.settle()
   eq(SessionPicker.current(), nil)
   ok(_G.notes[#_G.notes].msg:find("Usage: /resume", 1, true))
+  -- A refusal keeps the text to fix.
+  eq(agent:get_draft(), "/resume all")
 end)
 
 return T

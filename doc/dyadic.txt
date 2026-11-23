@@ -370,13 +370,20 @@ The composer completes in two places:
 Nothing else completes: plain words and bare paths are prose. Nothing from
 your buffers is attached to a prompt unless you type it.
 
+As in pi, accepting a built-in command submits the draft at once, in Normal
+mode: `/res` and accept opens the session picker. A command that takes
+arguments then asks for them with its picker. Accepting an argument that
+completes a command, a model, a thinking level, or a setting value, submits
+too. A setting name, and pi's extension, prompt, and skill commands, which
+often take text, are only inserted.
+
 With blink.cmp installed, dyadic adds its source for composers the first
 time one enters Insert mode; nothing needs configuring. Typing `/` or `@`
-opens the menu. Accepting `/model`, `/thinking`, `/settings`, or a setting
-name opens its arguments. The documentation window shows what a command
-does, a model's context window, output limit, reasoning, and image input,
-and the start of a file. To place the source yourself, configure it under
-any name; dyadic then uses that one: >lua
+opens the menu, and accepting a setting name opens its values. The
+documentation window shows what a command does, a model's context window,
+output limit, reasoning, and image input, and the start of a file. To place
+the source yourself, configure it under any name; dyadic then uses that
+one: >lua
     sources = {
       providers = {
         dyadic = { name = "Dyadic", module = "dyadic.completion.blink" },
@@ -385,8 +392,11 @@ any name; dyadic then uses that one: >lua
 <
 Do not also enable blink.cmp's `omni` source for `dyadic_composer`: it
 would list every item twice.
+
 Without blink.cmp, |i_CTRL-X_CTRL-O| completes the same places, with the
-descriptions in the menu and the preview. `/model` arguments need a request
+descriptions in the menu and the preview. Accepting with |complete_CTRL-Y|
+submits and opens values as above; ending completion any other way only
+inserts. `/model` arguments need a request
 to pi, so only blink.cmp completes them, and `/thinking` offers the levels
 pi reported the last time they were asked for. Other completion plugins
 with an omnifunc source, such as cmp-omni, use the 'omnifunc' too.
@@ -394,7 +404,10 @@ with an omnifunc source, such as cmp-omni, use the 'omnifunc' too.
 ==============================================================================
 8. PI COMMANDS                                            *dyadic-pi-commands*
 
-Type these in the composer and submit:
+Type these in the composer and submit. As in pi, a command leaves the
+composer as it runs, so cancelling its picker leaves the composer empty. If
+the command fails, its text comes back when the composer is still empty. A
+command dyadic refuses, such as `/new` with an argument, stays to be fixed.
 
   `/model [provider/model or search]`  Select a model
   `/thinking [level]`                  Select a supported thinking level
