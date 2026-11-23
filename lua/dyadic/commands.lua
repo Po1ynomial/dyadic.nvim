@@ -42,6 +42,17 @@ local function alive(agent)
   return not agent.closed
 end
 
+-- Whether pi lists `name` among its extension, prompt, and skill commands.
+function M.listed(agent, name)
+  for _, command in ipairs(agent.commands or {}) do
+    local listed = type(command) == "table" and command.name or command
+    if listed == name or listed == "/" .. name then
+      return true
+    end
+  end
+  return false
+end
+
 local function consume(agent, original)
   if alive(agent) and agent:get_draft() == original then
     agent:set_draft("")
@@ -502,6 +513,10 @@ function M.run(agent, text)
     return false
   end
   argument = vim.trim(argument)
+  -- Pi may provide a command that was TUI-only before, such as /llama, as an extension.
+  if unsupported[name] and M.listed(agent, name) then
+    return false
+  end
   if name == "hotkeys" then
     -- Mappings are buffer-local with descriptions, so Neovim already lists the active set.
     agent:notice("/hotkeys is not available. Use :nmap <buffer> or :help dyadic-mappings", "warning")

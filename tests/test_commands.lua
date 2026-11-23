@@ -28,6 +28,21 @@ T("unsupported TUI commands are rejected locally", function()
   eq(#agent.messages, 0)
 end)
 
+T("TUI-only names that pi lists as commands are forwarded", function()
+  local log = vim.fn.tempname()
+  local agent = H.open({ log = log, commands = { { name = "llama", source = "extension" } } })
+  agent:set_draft("/llama")
+  agent:submit()
+  H.wait(function()
+    return vim.iter(H.sent(log)):any(function(record)
+      return record.type == "prompt" and record.message == "/llama"
+    end)
+  end, 3000, "the /llama prompt")
+  H.wait(function()
+    return agent:get_draft() == ""
+  end, 3000, "the draft to clear")
+end)
+
 T("/resume lists sessions for this cwd and rereads only changed files", function()
   local dir = vim.fn.tempname() .. "-sessions"
   vim.fn.mkdir(dir, "p")

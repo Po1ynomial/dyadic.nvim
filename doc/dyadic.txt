@@ -366,8 +366,9 @@ when compaction finishes. Abort returns pi's queues and that local queue to
 the draft without discarding newer unsent text.
 
 TUI-only commands are rejected locally instead of becoming prompts: login
-and logout, scoped models, share and bug
-workflows, trust management, and `/hotkeys` (use `:nmap <buffer>`).
+and logout, scoped models, share and bug workflows, trust management, and
+`/hotkeys` (use `:nmap <buffer>`). A name pi lists as an extension command,
+such as `/llama`, is forwarded instead.
 
 Tree picker                                                     *dyadic-tree*
 
