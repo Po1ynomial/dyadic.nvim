@@ -6,17 +6,23 @@
 --   name        buffer name prefix, such as "dyadic://1/tree"
 --   filetype    of the list buffer
 --   title(p)    the list's title
---   footer      key hints under the list
+--   footer      key hints under the list, most important first; those that fit show
 --   on_query(p) the search text, `p.query`, changed
 --   on_move(p)  the cursor moved in the list
 --   on_close(p) the picker closed
 --   foldtext(p, line) chunks for a closed fold starting at `line`
 --   bar_keys    Insert-mode keys of the search bar: lhs -> function(p)
+--   preview     whether the picker has a preview pane; `p.show_preview` shows it
+--   on_resize(p) the list's size changed
 local M = {}
 local api = vim.api
 
 local ns = api.nvim_create_namespace("dyadic_picker")
 local bar_ns = api.nvim_create_namespace("dyadic_picker_bar")
+local preview_ns = api.nvim_create_namespace("dyadic_picker_preview")
+
+-- Below this many editor columns the preview goes under the list instead of beside it.
+M.PREVIEW_BESIDE_COLUMNS = 120
 local current -- the open picker, if any
 
 function M.valid_win(win)
@@ -24,17 +30,60 @@ function M.valid_win(win)
 end
 local valid_win = M.valid_win
 
--- Outer size about 90% of the editor, like the detail float: a search bar on top of the list.
-local function geometry()
+-- Outer size about 90% of the editor, like the detail float: a search bar on top of the
+-- list, and the preview beside the list in wide editors, else below it.
+local function geometry(preview)
   local columns, lines = vim.o.columns, vim.o.lines - vim.o.cmdheight
   local width = math.max(10, math.floor(columns * 0.9) - 2)
   local height = math.max(6, math.floor(lines * 0.9) - 2)
   local row = math.floor((lines - height - 2) / 2)
   local col = math.floor((columns - width - 2) / 2)
-  return {
+  local list_height = math.max(1, height - 3)
+  local layout = {
     bar = { relative = "editor", width = width, height = 1, row = row, col = col },
-    list = { relative = "editor", width = width, height = math.max(1, height - 3), row = row + 3, col = col },
+    list = { relative = "editor", width = width, height = list_height, row = row + 3, col = col },
   }
+  if preview then
+    if columns >= M.PREVIEW_BESIDE_COLUMNS then
+      local list_width = math.floor((width - 2) * 0.6)
+      layout.list.width = list_width
+      layout.preview = {
+        relative = "editor",
+        width = width - 2 - list_width,
+        height = list_height,
+        row = row + 3,
+        col = col + list_width + 2,
+      }
+    else
+      local preview_height = math.max(1, math.min(12, math.floor(list_height * 0.4)))
+      layout.list.height = math.max(1, list_height - preview_height - 2)
+      layout.preview = {
+        relative = "editor",
+        width = width,
+        height = preview_height,
+        row = row + 3 + layout.list.height + 2,
+        col = col,
+      }
+    end
+  end
+  return layout
+end
+
+local function preview_shown(p)
+  return p.spec.preview and p.show_preview
+end
+
+-- The hints that fit under a list `width` cells wide.
+local function footer_of(hints, width)
+  local text = ""
+  for _, hint in ipairs(hints) do
+    local next_text = text == "" and hint or text .. " · " .. hint
+    if vim.fn.strdisplaywidth(next_text) + 2 > width - 2 then
+      break
+    end
+    text = next_text
+  end
+  return " " .. text .. " "
 end
 
 -- The selected line: the cursor line, or the first line of the closed fold it is in.
@@ -66,13 +115,13 @@ function M.close(p, keep_focus)
     current = nil
   end
   pcall(api.nvim_del_augroup_by_id, p.group)
-  for _, win in ipairs({ p.bar_win, p.list_win }) do
+  for _, win in ipairs({ p.bar_win, p.list_win, p.preview_win }) do
     if valid_win(win) then
       pcall(api.nvim_win_close, win, true)
     end
   end
-  for _, buf in ipairs({ p.bar_buf, p.list_buf }) do
-    if api.nvim_buf_is_valid(buf) then
+  for _, buf in ipairs({ p.bar_buf, p.list_buf, p.preview_buf }) do
+    if buf and api.nvim_buf_is_valid(buf) then
       pcall(api.nvim_buf_delete, buf, { force = true })
     end
   end
@@ -223,6 +272,70 @@ local function scratch(name)
   return buf
 end
 
+-- Show `lines` in the preview, with `spans` as { line, start col, end col, group }.
+function M.set_preview(p, lines, spans)
+  if not (p.preview_buf and api.nvim_buf_is_valid(p.preview_buf)) then
+    return
+  end
+  vim.bo[p.preview_buf].modifiable = true
+  api.nvim_buf_set_lines(p.preview_buf, 0, -1, false, lines)
+  vim.bo[p.preview_buf].modifiable = false
+  api.nvim_buf_clear_namespace(p.preview_buf, preview_ns, 0, -1)
+  for _, span in ipairs(spans or {}) do
+    api.nvim_buf_set_extmark(p.preview_buf, preview_ns, span[1], span[2], { end_col = span[3], hl_group = span[4] })
+  end
+  if valid_win(p.preview_win) then
+    api.nvim_win_set_cursor(p.preview_win, { 1, 0 })
+  end
+end
+
+-- Place the windows for the editor's size and whether the preview shows.
+local function arrange(p)
+  local layout = geometry(preview_shown(p))
+  if valid_win(p.bar_win) then
+    api.nvim_win_set_config(p.bar_win, layout.bar)
+  end
+  if valid_win(p.list_win) then
+    api.nvim_win_set_config(
+      p.list_win,
+      vim.tbl_extend(
+        "force",
+        layout.list,
+        { footer = footer_of(p.spec.footer, layout.list.width), footer_pos = "left" }
+      )
+    )
+  end
+  if layout.preview then
+    local config = vim.tbl_extend("force", layout.preview, { border = "rounded", style = "minimal", focusable = false })
+    if valid_win(p.preview_win) then
+      api.nvim_win_set_config(p.preview_win, layout.preview)
+    else
+      p.preview_win = api.nvim_open_win(p.preview_buf, false, config)
+      vim.wo[p.preview_win].wrap = true
+      vim.wo[p.preview_win].linebreak = true
+      vim.wo[p.preview_win].breakindent = true
+      vim.wo[p.preview_win].fillchars = "lastline: ,eob: "
+      require("dyadic.pin").pin(p.preview_win, p.preview_buf, {
+        lost = function()
+          M.close(p, true)
+        end,
+      })
+    end
+  elseif valid_win(p.preview_win) then
+    pcall(api.nvim_win_close, p.preview_win, true)
+    p.preview_win = nil
+  end
+  if p.spec.on_resize then
+    p.spec.on_resize(p)
+  end
+end
+
+-- Show or hide the preview.
+function M.toggle_preview(p)
+  p.show_preview = not p.show_preview
+  arrange(p)
+end
+
 -- Closed folds show their first row with the picker's closed marker.
 function M.foldtext()
   local p = current
@@ -232,7 +345,7 @@ function M.foldtext()
   end
   local out = {}
   for _, chunk in ipairs(chunks) do
-    out[#out + 1] = { chunk[1], chunk[2] or "Normal" }
+    out[#out + 1] = { chunk[1], chunk[2] or "NormalFloat" }
   end
   return out
 end
@@ -246,9 +359,15 @@ function M.open(p, spec)
   p.query = p.query or ""
   p.previous_win = api.nvim_get_current_win()
   current = p
-  local layout = geometry()
+  local layout = geometry(preview_shown(p))
   p.bar_buf = scratch(spec.name .. "/search")
   p.list_buf = scratch(spec.name)
+  if spec.preview then
+    p.preview_buf = scratch(spec.name .. "/preview")
+    -- Hiding the preview closes its window; the buffer goes when the picker closes.
+    vim.bo[p.preview_buf].bufhidden = "hide"
+    vim.bo[p.preview_buf].modifiable = false
+  end
   vim.bo[p.list_buf].filetype = spec.filetype
   vim.bo[p.list_buf].modifiable = false
   p.bar_win = api.nvim_open_win(
@@ -264,7 +383,7 @@ function M.open(p, spec)
       style = "minimal",
       title = " ",
       title_pos = "left",
-      footer = spec.footer,
+      footer = footer_of(spec.footer, layout.list.width),
       footer_pos = "left",
     })
   )
@@ -277,6 +396,8 @@ function M.open(p, spec)
     foldcolumn = "0",
     foldtext = "v:lua.require'dyadic.picker'.foldtext()",
     fillchars = "fold: ,eob: ",
+    -- A closed fold is one row with its own marker, drawn like any other row.
+    winhighlight = "Folded:NormalFloat",
   }) do
     vim.wo[p.list_win][option] = value
   end
@@ -287,6 +408,9 @@ function M.open(p, spec)
   end
   Pin.pin(p.list_win, p.list_buf, { lost = lost })
   Pin.pin(p.bar_win, p.bar_buf, { lost = lost })
+  if preview_shown(p) then
+    arrange(p)
+  end
   placeholder(p)
 
   -- The search bar: typing filters at once; the list's selection moves from here too.
@@ -356,11 +480,7 @@ function M.open(p, spec)
   api.nvim_create_autocmd("VimResized", {
     group = p.group,
     callback = function()
-      local resized = geometry()
-      if valid_win(p.bar_win) and valid_win(p.list_win) then
-        api.nvim_win_set_config(p.bar_win, resized.bar)
-        api.nvim_win_set_config(p.list_win, resized.list)
-      end
+      arrange(p)
     end,
   })
   return p

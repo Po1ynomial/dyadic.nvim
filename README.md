@@ -2,7 +2,7 @@
 
 A native Neovim client for [pi](https://pi.dev), using its RPC mode and a small bundled pi extension, the bridge, for what stock RPC lacks. An agent is one pi process with two buffers: a read-only history of the session and a composer where you write the next message with normal Neovim editing. No embedded terminal and no required UI libraries.
 
-By default the agent lives in a sidebar: the history on top, the composer below it, both kept in place while you work in the rest of the tab. The history holds only message text, so it stays plain markdown; tool calls, thinking, and shell commands are overlay rows that collapse once the agent answers, and `K` opens any of them in a float. The composer shows the agent's phase, queued messages, context use, cost, and model around your draft. `/tree`, or `<Esc><Esc>` while the agent is idle, opens pi's session tree in a float to move between branches, with pi's filters, search, labels, and Neovim folds.
+By default the agent lives in a sidebar: the history on top, the composer below it, both kept in place while you work in the rest of the tab. The history holds only message text, so it stays plain markdown; tool calls, thinking, and shell commands are overlay rows that collapse once the agent answers, and `K` opens any of them in a float. The composer shows the agent's phase, queued messages, context use, cost, and model around your draft. `/tree`, or `<Esc><Esc>` while the agent is idle, opens pi's session tree in a float to move between branches, with pi's filters, search, labels, and Neovim folds. `/resume`, or `:Dyadic -r` for a new agent, opens pi's saved sessions the same way, with forks threaded, every directory folded under its own row, and a preview of each session.
 
 The bridge also routes pi's `read`, `edit`, and `write` through your buffers: the agent reads unsaved text, and its changes land in open buffers as ordinary edits. With `review` on, every change waits in the file's buffer, hunk by hunk, until you accept or reject it, optionally with a reason for the agent. With `change_notes` on, the agent is told when files it has seen change, by you or anything else.
 
@@ -36,7 +36,7 @@ Run `:Dyadic` to show an agent. Write in the composer, then press Enter in Norma
 
 ## Documentation
 
-The full reference is in Neovim's help: `:help dyadic`. It covers windows and placements (`:help dyadic-windows`), the history and details (`:help dyadic-history`), the composer, mappings, pi commands, the Lua API, file reloading, the tree picker (`:help dyadic-tree`), reviews (`:help dyadic-review`), change notes (`:help dyadic-change-notes`), the bridge (`:help dyadic-bridge`), and protocol limits. [GLOSSARY.md](GLOSSARY.md) defines the terms the code and docs use.
+The full reference is in Neovim's help: `:help dyadic`. It covers windows and placements (`:help dyadic-windows`), the history and details (`:help dyadic-history`), the composer, mappings, pi commands, the Lua API, file reloading, the tree picker (`:help dyadic-tree`), the session picker (`:help dyadic-sessions`), reviews (`:help dyadic-review`), change notes (`:help dyadic-change-notes`), the bridge (`:help dyadic-bridge`), and protocol limits. [GLOSSARY.md](GLOSSARY.md) defines the terms the code and docs use.
 
 ## Development
 

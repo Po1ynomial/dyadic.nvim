@@ -70,7 +70,7 @@ local function footer(keys)
   add(keys.label, "label")
   add(keys.copy, "copy")
   add(keys.close, "close")
-  return " " .. table.concat(hints, " · ") .. " "
+  return hints
 end
 
 -- Row chunks without the fold marker state; foldtext swaps in the closed marker.

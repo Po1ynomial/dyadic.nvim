@@ -324,20 +324,19 @@ function M.run(agent, text)
       switched(agent, name == "new" and "new_session" or "clone", {}, text)
     end
   elseif name == "resume" then
-    if argument ~= "" and argument ~= "all" then
-      local path = resolve(argument, agent.cwd)
-      if not Sessions.info(path) then
-        agent:notice("Not a readable pi session file: " .. path, "error")
-      else
-        switched(agent, "switch_session", { sessionPath = path }, text)
-      end
+    if argument ~= "" then
+      agent:notice("Usage: /resume. To open a session file, use :Dyadic --session {path}", "error")
     else
-      local where = { cwd = agent.cwd, args = agent.args, session_file = agent.state.sessionFile }
-      pick(agent, Sessions.list(where, argument == "all"), "Saved sessions", function(item)
-        return (item.name or item.preview or item.id) .. "  " .. (item.timestamp or "") .. "  " .. item.cwd
-      end, function(item)
-        switched(agent, "switch_session", { sessionPath = item.path }, text)
-      end)
+      local current = agent.state.sessionFile
+      require("dyadic.session_picker").open({
+        where = { cwd = agent.cwd, args = agent.args, session_file = current },
+        config = agent.config,
+        on_choose = function(path)
+          if alive(agent) and resolve(path, agent.cwd) ~= resolve(current or "", agent.cwd) then
+            switched(agent, "switch_session", { sessionPath = path }, text)
+          end
+        end,
+      })
     end
   elseif name == "fork" then
     agent:request("get_fork_messages", {}, function(err, data)

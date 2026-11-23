@@ -100,6 +100,24 @@ function H.ready(agent)
   return agent
 end
 
+-- Wait until the session picker is open and has loaded the sessions of its scope.
+function H.session_picker()
+  local Picker = require("dyadic.session_picker")
+  H.wait(function()
+    local p = Picker.current()
+    local state = p and p.scopes[p.scope]
+    return state ~= nil and state.done and not p.render_pending
+  end, 5000, "the session picker")
+  return Picker.current()
+end
+
+-- The session picker's rows, with runs of spaces squeezed to two.
+function H.picker_lines(p)
+  return vim.tbl_map(function(line)
+    return vim.trim((line:gsub("%s%s+", "  ")))
+  end, vim.api.nvim_buf_get_lines(p.list_buf, 0, -1, false))
+end
+
 -- Send a request and wait for its response; events pi sent before it are handled by then.
 function H.request(agent, kind, fields)
   local done, response_err, response_data = false, nil, nil

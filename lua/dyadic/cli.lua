@@ -274,28 +274,11 @@ local function without(words, drop)
   return kept
 end
 
-local function pick_session(cwd, args, done)
-  local items = Sessions.list({ cwd = cwd, args = args }, false)
-  if #items == 0 then
-    notify("No sessions in " .. vim.fn.fnamemodify(cwd, ":~"), vim.log.levels.WARN)
-    return
-  end
-  vim.ui.select(items, {
-    prompt = "Resume session",
-    format_item = function(item)
-      return (item.name or item.preview or item.id) .. "  " .. (item.timestamp or "")
-    end,
-  }, function(item)
-    if item then
-      done(item.path)
-    end
-  end)
-end
-
 -- Turn `config_args` and the user's `words` into the arguments pi gets, resolving what pi
 -- would ask about on the terminal: -r opens a picker, and a session ID from another
 -- directory asks whether to fork it. Calls done(args, draft), at once when nothing needs
 -- asking; without `opts.interactive`, an argument that needs asking is an error.
+-- `opts.config` is dyadic's configuration, for the session picker's keys.
 function M.prepare(cwd, config_args, words, done, opts)
   opts = opts or {}
   local combined = vim.list_extend(vim.deepcopy(config_args), words)
@@ -359,11 +342,15 @@ function M.prepare(cwd, config_args, words, done, opts)
     if not interactive() then
       return
     end
-    pick_session(cwd, combined, function(path)
-      local args = without(combined, drop)
-      vim.list_extend(args, { "--session", path })
-      done(args, draft)
-    end)
+    require("dyadic.session_picker").open({
+      where = where,
+      config = opts.config,
+      on_choose = function(path)
+        local args = without(combined, drop)
+        vim.list_extend(args, { "--session", path })
+        done(args, draft)
+      end,
+    })
     return
   end
   done(without(combined, drop), draft)

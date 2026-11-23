@@ -54,6 +54,7 @@ Setup is optional. Defaults:
       mappings = {},
       double_escape = "tree",
       tree = { keys = {} },
+      sessions = { keys = {} },
       review = false,
       change_notes = false,
     })
@@ -82,6 +83,7 @@ Setup is optional. Defaults:
 `double_escape` What <Esc><Esc> does while idle: `"tree"`, `"fork"`, or
                 `"none"` (see |dyadic-double-escape|).
 `tree`          Tree picker keys (see |dyadic-tree|).
+`sessions`      Session picker keys (see |dyadic-sessions|).
 `review`        Which files' changes you review before they land, and the
                 review keys (see |dyadic-review|).
 `change_notes`  Tell the agent when files it has seen change (see
@@ -111,7 +113,7 @@ The history and composer are scratch buffers named `dyadic://<id>/history`
 and `dyadic://<id>/composer`. Hiding them does not interrupt the agent.
 Deleting the history buffer or running `:Dyadic close` ends the agent's
 process and disposes its composer, details, and pending extension dialogs.
-Saved pi session files are never deleted.
+Closing an agent never deletes its session file.
 
 Quit guard                                                *dyadic-quit-guard*
 While any agent streams, compacts, retries, or runs a shell command, quitting
@@ -342,8 +344,8 @@ Type these in the composer and submit:
   `/model [provider/model or search]`  Select a model
   `/thinking [level]`                  Select a supported thinking level
   `/new`                               Start a fresh session in this agent
-  `/resume [session-file or all]`      Pick a saved session; `all` includes
-                                     other working directories
+  `/resume`                            Switch to a saved session with the
+                                     session picker (|dyadic-sessions|)
   `/name [name]`                       Set or show the session name
   `/session`                           Show identity, file, usage, context
   `/compact [instructions]`            Compact through pi
@@ -434,10 +436,60 @@ which returns to the picker. Going to one of your messages moves to the
 entry before it and adds its text to the draft; any other entry becomes the
 current one. Leaving the picker's windows closes it.
 
-The resume picker honors `--session-dir`, `PI_CODING_AGENT_SESSION_DIR`,
-project and user `sessionDir`, and `PI_CODING_AGENT_DIR`; an active session's
-directory is authoritative. Metadata is cached by file size and modification
-time. dyadic keeps no database of its own.
+Session picker                                              *dyadic-sessions*
+
+`/resume`, the `resume` action, and `:Dyadic -r` open a float with pi's
+saved sessions, as pi's own session selector lists them. From `/resume`,
+the session you choose replaces the agent's; from `:Dyadic -r`, it opens in
+another agent. It does not need the bridge.
+
+The list starts with the sessions of the agent's directory, or of Neovim's
+cwd for `:Dyadic -r`, with forks under the session they came from. Each row
+shows the session's name, else its first message, then its message count
+and how long ago it was last active. Named sessions stand out, `•` marks
+the agent's own session, and `agent 2` marks one a live agent shows. The
+All view groups every directory's sessions under a row for the directory;
+the current one comes first and open, the others folded. Sorted by recency
+or relevance, the rows are flat, and in the All view show their directory.
+
+The preview beside the list, or below it in editors narrower than 120
+columns, shows the session under the cursor: its full name and first
+message, the last message and reply, and its directory, model, thinking
+level, message count, times, ID, file, and the session it was forked from.
+
+Keys in the list:
+
+  Key       Name               Action ~
+  <CR>      `open`               Open the session; on a directory, fold or
+                               unfold it
+  /         `search`             Focus the search bar
+  <Esc>     `cancel`             Clear the search, else close
+  q         `close`              Close
+  h         `fold_or_up`         Fold the row, else go to its parent
+  l         `unfold_or_down`     Unfold the row, else go to its first child
+  <Tab>     `scope`              This directory or All, also while typing
+  s         `sort`               Threaded, recent, or relevance
+  n         `named`              Toggle: named sessions only
+  p         `preview`            Hide or show the preview
+  dd        `delete`             Delete the session after |confirm()|
+  yy        `copy`               Copy the session file's path to
+                               |v:register|
+
+Change or disable them with `sessions.keys`, as with `tree.keys`.
+
+Typing in the search bar filters at once on names, first messages, IDs, and
+directories; every word must match. With a search, the threaded sort lists
+by relevance, as in pi: matches in the name first. Delete moves the file to
+the trash with the `trash` command when there is one, else deletes it, and
+refuses a session a live agent shows.
+
+Session details load in the background, so the list fills in while the
+title shows `loading`. They are kept by file size and modification time
+until Neovim exits; dyadic keeps no database of its own. Opening the picker
+also starts loading the All view. Sessions are found as pi finds them:
+`--session-dir`, `PI_CODING_AGENT_SESSION_DIR`, project and user
+`sessionDir`, and `PI_CODING_AGENT_DIR`, and an active session's directory
+comes first.
 
 ==============================================================================
 9. NEOVIM COMMANDS                                           *dyadic-commands*
@@ -476,8 +528,8 @@ When the first argument starts with `-`, `:Dyadic` opens another agent as
 split like a shell's: quotes group them, and a leading `~` is the home
 directory. Some arguments work differently than in a terminal:
 
-- `-r`, `--resume`: dyadic shows the sessions of Neovim's cwd and opens the
-  one you choose with `--session`.
+- `-r`, `--resume`: dyadic's session picker (|dyadic-sessions|) shows the
+  sessions of Neovim's cwd and opens the one you choose with `--session`.
 - `--session {id}`: an ID that only matches another directory's session asks
   whether to fork it into this directory, as pi does, and opens the fork.
 - Messages, the words pi does not read as options or their values, and all
@@ -717,6 +769,8 @@ override them.
   DyadicTreeLine          Tree picker connectors        Comment
   DyadicTreeActive        Active branch, fold marks     Identifier
   DyadicTreeLabel         Labels in the tree picker     DiagnosticWarn
+  DyadicSessionNamed      Session picker: named ones    DiagnosticWarn
+  DyadicSessionDir        Session picker: directories   Directory
   DyadicReviewAdd         Lines a reviewed change adds  DiffAdd
   DyadicReviewDelete      Lines it removes              DiffDelete
   DyadicReviewAddText     Changed words in added lines  (see below)

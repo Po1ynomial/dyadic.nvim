@@ -124,3 +124,7 @@ _Avoid_: scope, policy
 **Tree picker**:
 The float that shows a session's tree of entries and moves the agent to another entry in it.
 _Avoid_: tree view, tree selector, navigator
+
+**Session picker**:
+The float that lists saved sessions and opens the chosen one, in this agent or in a new one.
+_Avoid_: resume picker, session selector, session list

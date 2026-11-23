@@ -11,6 +11,7 @@ local defaults = {
   mappings = {},
   double_escape = "tree",
   tree = { keys = {} },
+  sessions = { keys = {} },
   review = false,
   change_notes = false,
 }
@@ -43,6 +44,8 @@ function M.setup(opts)
   end, '"tree", "fork", or "none"')
   vim.validate("tree", config.tree, "table")
   vim.validate("tree.keys", config.tree.keys, "table")
+  vim.validate("sessions", config.sessions, "table")
+  vim.validate("sessions.keys", config.sessions.keys, "table")
   vim.validate("review", config.review, { "boolean", "table" })
   vim.validate("change_notes", config.change_notes, "boolean")
   local review = config.review
@@ -115,7 +118,7 @@ local function start(words)
     if draft ~= "" then
       started:set_draft(draft)
     end
-  end, { interactive = true })
+  end, { interactive = true, config = config })
   return started
 end
 

@@ -46,43 +46,6 @@ T("TUI-only names that pi lists as commands are forwarded", function()
   end, 3000, "the draft to clear")
 end)
 
-T("/resume lists sessions for this cwd and rereads only changed files", function()
-  local dir = vim.fn.tempname() .. "-sessions"
-  vim.fn.mkdir(dir, "p")
-  local function session(name, cwd, prompt)
-    local path = dir .. "/" .. name .. ".jsonl"
-    vim.fn.writefile({
-      vim.json.encode({ type = "session", id = name, cwd = cwd, timestamp = "2026-01-01" }),
-      vim.json.encode({ type = "message", id = "m", message = { role = "user", content = prompt } }),
-    }, path)
-    return path
-  end
-  local here = session("a", "/work", "first prompt")
-  session("b", "/elsewhere", "other project")
-  -- The active session's directory is authoritative, so keep the fake's file there too.
-  H.open({ state = { sessionFile = here } }, { args = { "--session-dir", dir } })
-  local opened, picked = 0, nil
-  local open = vim.uv.fs_open
-  vim.uv.fs_open = function(path, ...)
-    if path:match("%.jsonl$") then
-      opened = opened + 1
-    end
-    return open(path, ...)
-  end
-  vim.ui.select = function(items, opts)
-    picked = vim.tbl_map(opts.format_item, items)
-  end
-  require("dyadic").command("resume")
-  eq(#picked, 1)
-  ok(picked[1]:match("^first prompt"), picked[1])
-  eq(opened, 2)
-  require("dyadic").command("resume")
-  eq(opened, 2)
-  vim.uv.fs_utime(here, os.time() + 60, os.time() + 60)
-  require("dyadic").command("resume")
-  eq(opened, 3)
-end)
-
 T(":Dyadic reports unknown subcommands", function()
   local log = vim.fn.tempname()
   H.open({ log = log, commands = { { name = "handoff", source = "extension" } } })
