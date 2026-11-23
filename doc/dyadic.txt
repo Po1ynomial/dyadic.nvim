@@ -131,8 +131,9 @@ the log's path.
 4. WINDOWS                                                    *dyadic-windows*
 
 The history window is the center. The composer is a split directly below one
-history window, and an agent has at most one composer: opening it under
-another history window moves it there.
+history window, and an agent has at most one composer window in each tab:
+opening it under another history window of the tab moves it there. Composer
+windows in different tabs show the same draft.
 
 While attached, the history window and its composer stay together:
 - The composer's height follows its content (draft, widgets, and footer)

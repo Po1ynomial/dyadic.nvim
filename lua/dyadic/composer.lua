@@ -1,11 +1,12 @@
--- The composer window. An agent has at most one; it is a split directly below one history
--- window, its anchor, and stays there while attached: its height is computed and restored,
--- a moved composer is put back, windows split into the pair are moved out, and a composer
--- never stays alone. Without a composer a history window is an ordinary window.
+-- The composer window. An agent has at most one in each tab, all showing its one composer
+-- buffer; each is a split directly below one history window, its anchor, and stays there
+-- while attached: its height is computed and restored, a moved composer is put back,
+-- windows split into the pair are moved out, and a composer never stays alone. Without a
+-- composer a history window is an ordinary window.
 local M = {}
 local api = vim.api
 
--- agent -> { win = composer window, anchor = history window }
+-- agent -> tabpage -> { win = composer window, anchor = history window }
 local attached = {}
 -- Windows created since the last check; only these can be intruders.
 local created = {}
@@ -36,9 +37,38 @@ local function tiled(tab)
   end, api.nvim_tabpage_list_wins(tab))
 end
 
+-- The attachment of an agent's composer in a tab, the current one by default.
+local function state_of(agent, tab)
+  local tabs = attached[agent]
+  return tabs and tabs[tab or api.nvim_get_current_tabpage()]
+end
+
+local function set_state(agent, tab, state)
+  if state then
+    attached[agent] = attached[agent] or {}
+    attached[agent][tab] = state
+  elseif attached[agent] then
+    attached[agent][tab] = nil
+    if next(attached[agent]) == nil then
+      attached[agent] = nil
+    end
+  end
+end
+
+-- Every attachment, as { agent, tab, state } items.
+local function all()
+  local result = {}
+  for agent, tabs in pairs(attached) do
+    for tab, state in pairs(tabs) do
+      result[#result + 1] = { agent, tab, state }
+    end
+  end
+  return result
+end
+
 local function pair_member(win)
-  for _, state in pairs(attached) do
-    if state.win == win or state.anchor == win then
+  for _, item in ipairs(all()) do
+    if item[3].win == win or item[3].anchor == win then
       return true
     end
   end
@@ -46,13 +76,27 @@ local function pair_member(win)
 end
 M.pair_member = pair_member
 
-function M.window(agent)
-  local state = attached[agent]
+-- The agent's composer window in a tab, the current one by default.
+function M.window(agent, tab)
+  local state = state_of(agent, tab)
   return state and valid_win(state.win) and state.win or nil
 end
 
-function M.anchor(agent)
-  local state = attached[agent]
+-- The agent's composer windows in all tabs.
+function M.windows(agent)
+  local result = {}
+  for _, state in pairs(attached[agent] or {}) do
+    if valid_win(state.win) then
+      result[#result + 1] = state.win
+    end
+  end
+  return result
+end
+
+-- The history window the agent's composer is attached to in a tab, the current one by
+-- default.
+function M.anchor(agent, tab)
+  local state = state_of(agent, tab)
   return state and valid_win(state.win) and valid_win(state.anchor) and state.anchor or nil
 end
 
@@ -166,9 +210,8 @@ local function target_height(agent, win, anchor)
   return math.max(1, math.min(math.max(text, min), max, total - 1)) + bar
 end
 
-function M.resize(agent)
-  local state = attached[agent]
-  if not (state and valid_win(state.win) and valid_win(state.anchor)) then
+local function resize(agent, state)
+  if not (valid_win(state.win) and valid_win(state.anchor)) then
     return
   end
   local height = target_height(agent, state.win, state.anchor)
@@ -185,6 +228,13 @@ function M.resize(agent)
   end
 end
 
+-- Fit the agent's composer windows in all tabs to their text.
+function M.resize(agent)
+  for _, state in pairs(attached[agent] or {}) do
+    resize(agent, state)
+  end
+end
+
 local function composer_options(win)
   local wo = vim.wo[win]
   wo.winfixheight = true
@@ -198,9 +248,11 @@ local function composer_options(win)
   wo.scrolloff = 0
 end
 
--- Attach the composer below a history window, moving it if it is attached elsewhere.
+-- Attach the composer below a history window, moving it if it is attached elsewhere in
+-- that tab.
 function M.attach(agent, anchor, focus)
-  local state = attached[agent]
+  local tab = api.nvim_win_get_tabpage(anchor)
+  local state = state_of(agent, tab)
   local win = state and valid_win(state.win) and state.win or nil
   if win and state.anchor ~= anchor then
     if not pcall(api.nvim_win_set_config, win, { split = "below", win = anchor }) then
@@ -220,17 +272,20 @@ function M.attach(agent, anchor, focus)
     win = opened
     composer_options(win)
   end
-  attached[agent] = { win = win, anchor = anchor }
-  M.resize(agent)
+  state = { win = win, anchor = anchor }
+  set_state(agent, tab, state)
+  resize(agent, state)
   if focus then
     api.nvim_set_current_win(win)
   end
   return win
 end
 
-function M.close(agent)
-  local state = attached[agent]
-  attached[agent] = nil
+-- Close the agent's composer in a tab, the current one by default.
+function M.close(agent, tab)
+  tab = tab or api.nvim_get_current_tabpage()
+  local state = state_of(agent, tab)
+  set_state(agent, tab, nil)
   if state and valid_win(state.win) then
     if #tiled(api.nvim_win_get_tabpage(state.win)) > 1 then
       pcall(api.nvim_win_close, state.win, true)
@@ -242,8 +297,10 @@ end
 
 -- A composer never stays alone: its window shows the history instead.
 function M.to_history(agent, win)
-  if attached[agent] and attached[agent].win == win then
-    attached[agent] = nil
+  for tab, state in pairs(attached[agent] or {}) do
+    if state.win == win then
+      set_state(agent, tab, nil)
+    end
   end
   require("dyadic.pin").unpin(win)
   vim.wo[win].winfixheight = false
@@ -251,15 +308,15 @@ function M.to_history(agent, win)
   view().adopt(win)
 end
 
-local function check_agent(agent, state)
+local function check_agent(agent, tab, state)
   local win, anchor = state.win, state.anchor
   if agent.closed or not valid_win(win) then
-    attached[agent] = nil
+    set_state(agent, tab, nil)
     return
   end
   -- The history window closed or shows another buffer: the composer goes too.
   if not valid_win(anchor) or api.nvim_win_get_buf(anchor) ~= agent.history_buf then
-    M.close(agent)
+    M.close(agent, tab)
     return
   end
   for new in pairs(created) do
@@ -272,22 +329,25 @@ local function check_agent(agent, state)
   end
   if not in_place(anchor, win) then
     if not pcall(api.nvim_win_set_config, win, { split = "below", win = anchor }) then
-      M.close(agent)
+      M.close(agent, tab)
       return
     end
   end
-  M.resize(agent)
+  resize(agent, state)
 end
 
--- Windows that show a composer buffer without being its attached composer.
+-- Windows that show a composer buffer without being an attached composer.
 local function check_strays()
-  local agents = {}
+  local agents, composers = {}, {}
   for _, agent in ipairs(require("dyadic").list()) do
     agents[agent.composer_buf] = agent
   end
+  for _, item in ipairs(all()) do
+    composers[item[3].win] = true
+  end
   for _, win in ipairs(api.nvim_list_wins()) do
     local agent = agents[api.nvim_win_get_buf(win)]
-    if agent and win ~= M.window(agent) and not is_float(win) then
+    if agent and not composers[win] and not is_float(win) then
       if #tiled(api.nvim_win_get_tabpage(win)) > 1 then
         pcall(api.nvim_win_close, win, true)
       else
@@ -301,8 +361,8 @@ function M.check()
   check_pending = false
   -- A forced buffer switch in the sidebar is undone before it looks like a closed pair.
   require("dyadic.pin").check()
-  for agent, state in pairs(attached) do
-    check_agent(agent, state)
+  for _, item in ipairs(all()) do
+    check_agent(item[1], item[2], item[3])
   end
   check_strays()
   sidebar().check(created)
@@ -317,10 +377,12 @@ function M.schedule_check()
 end
 
 function M.dispose(agent)
-  local state = attached[agent]
+  local tabs = attached[agent] or {}
   attached[agent] = nil
-  if state and valid_win(state.win) and #tiled(api.nvim_win_get_tabpage(state.win)) > 1 then
-    pcall(api.nvim_win_close, state.win, true)
+  for _, state in pairs(tabs) do
+    if valid_win(state.win) and #tiled(api.nvim_win_get_tabpage(state.win)) > 1 then
+      pcall(api.nvim_win_close, state.win, true)
+    end
   end
 end
 
@@ -330,13 +392,14 @@ end
 local function quit_pre()
   local current = api.nvim_get_current_win()
   local refused = #api.nvim_list_tabpages() == 1 and require("dyadic.quit_guard").blocks_exit()
-  for agent, state in pairs(attached) do
+  for _, item in ipairs(all()) do
+    local agent, tab, state = item[1], item[2], item[3]
     if state.anchor == current and valid_win(state.win) then
       local others = vim.tbl_filter(function(win)
         return win ~= current and win ~= state.win
       end, tiled(api.nvim_win_get_tabpage(current)))
       if #others == 0 then
-        attached[agent] = nil
+        set_state(agent, tab, nil)
         pcall(api.nvim_win_close, state.win, true)
         if refused then
           vim.schedule(function()

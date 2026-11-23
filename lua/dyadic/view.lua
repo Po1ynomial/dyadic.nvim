@@ -623,9 +623,12 @@ local function set_option(win, name, value)
 end
 
 local function composer_bar(agent)
-  local win = Composer.window(agent)
-  if win then
-    set_option(win, "winbar", Bars.composer_winbar(agent, agent._view.frame))
+  local wins = Composer.windows(agent)
+  if #wins > 0 then
+    local bar = Bars.composer_winbar(agent, agent._view.frame)
+    for _, win in ipairs(wins) do
+      set_option(win, "winbar", bar)
+    end
   end
 end
 
@@ -633,7 +636,7 @@ end
 -- counts up once a second.
 local function spin(agent)
   local view = agent._view
-  local shown = Composer.window(agent) ~= nil or #vim.fn.win_findbuf(agent.history_buf) > 0
+  local shown = #Composer.windows(agent) > 0 or #vim.fn.win_findbuf(agent.history_buf) > 0
   local wanted = Bars.busy(agent) and shown and not agent.closed
   if wanted and not view.spinner then
     view.frame = 1
@@ -670,13 +673,12 @@ statuslines = function(agent)
       end
     end
   end
-  local win = Composer.window(agent)
-  if win then
-    if statusline then
+  if statusline then
+    for _, win in ipairs(Composer.windows(agent)) do
       set_option(win, "statusline", Bars.statusline(agent, "composer"))
     end
-    composer_bar(agent)
   end
+  composer_bar(agent)
   spin(agent)
 end
 

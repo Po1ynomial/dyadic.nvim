@@ -41,13 +41,13 @@ end
 
 -- Whether a window is the sidebar's history window or the composer attached to it.
 function M.contains(win)
-  for _, state in pairs(sidebars) do
+  for tab, state in pairs(sidebars) do
     if valid_win(state.win) then
       if state.win == win then
         return true
       end
       local agent = require("dyadic.view").agent_of(api.nvim_win_get_buf(state.win))
-      if agent and require("dyadic.composer").window(agent) == win then
+      if agent and require("dyadic.composer").window(agent, tab) == win then
         return true
       end
     end
@@ -81,8 +81,8 @@ function M.show(agent)
   if state then
     local shown = View.agent_of(api.nvim_win_get_buf(state.win))
     if shown ~= agent then
-      if shown and require("dyadic.composer").anchor(shown) == state.win then
-        require("dyadic.composer").close(shown)
+      if shown and require("dyadic.composer").anchor(shown, tab) == state.win then
+        require("dyadic.composer").close(shown, tab)
       end
       require("dyadic.pin").set_buf(state.win, agent.history_buf)
     end
@@ -116,7 +116,7 @@ function M.close(tab)
   end
   local agent = require("dyadic.view").agent_of(api.nvim_win_get_buf(state.win))
   local Composer = require("dyadic.composer")
-  local composer = agent and Composer.anchor(agent) == state.win and Composer.window(agent) or nil
+  local composer = agent and Composer.anchor(agent, tab) == state.win and Composer.window(agent, tab) or nil
   local tiled = vim.tbl_filter(function(win)
     return not is_float(win) and win ~= state.win and win ~= composer
   end, api.nvim_tabpage_list_wins(tab))
@@ -124,7 +124,7 @@ function M.close(tab)
     return false
   end
   if composer then
-    Composer.close(agent)
+    Composer.close(agent, tab)
   end
   pcall(api.nvim_win_close, state.win, true)
   sidebars[tab] = nil
@@ -315,9 +315,9 @@ function M.quit_pre()
   local refused = #api.nvim_list_tabpages() == 1 and require("dyadic.quit_guard").blocks_exit()
   local Composer = require("dyadic.composer")
   local agent = require("dyadic.view").agent_of(api.nvim_win_get_buf(state.win))
-  local had_composer = agent and Composer.anchor(agent) == state.win
+  local had_composer = agent and Composer.anchor(agent, tab) == state.win
   if had_composer then
-    Composer.close(agent)
+    Composer.close(agent, tab)
   end
   pcall(api.nvim_win_close, state.win, true)
   sidebars[tab] = nil

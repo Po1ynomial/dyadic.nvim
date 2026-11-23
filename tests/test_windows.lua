@@ -171,9 +171,9 @@ T("switching the history window's buffer closes the composer and keeps the draft
   eq(agent:get_draft(), "unsent")
 end)
 
-T("an agent has one composer; focusing it from another history window moves it", function()
+T("an agent has one composer window in each tab", function()
   local agent = H.open(nil, { placement = "free" })
-  local first = Composer.anchor(agent)
+  local tab, first = api.nvim_get_current_tabpage(), Composer.anchor(agent)
   vim.cmd("tabnew")
   api.nvim_win_set_buf(0, agent.history_buf)
   local second = api.nvim_get_current_win()
@@ -181,8 +181,13 @@ T("an agent has one composer; focusing it from another history window moves it",
   H.settle()
   eq(Composer.anchor(agent), second)
   ok(attached(agent), vim.inspect(vim.fn.winlayout()))
-  eq(#vim.fn.win_findbuf(agent.composer_buf), 1)
-  ok(api.nvim_win_is_valid(first), "the first history window was closed")
+  eq(#vim.fn.win_findbuf(agent.composer_buf), 2)
+  eq(Composer.anchor(agent, tab), first)
+  -- Closing one tab's pair leaves the other.
+  api.nvim_win_close(second, true)
+  H.settle()
+  eq(Composer.window(agent), nil)
+  eq(Composer.anchor(agent, tab), first)
 end)
 
 return T
