@@ -99,6 +99,9 @@ and |terminal| children, so an inherited value names an outer Neovim.
 `:Dyadic` shows the agent you used last, or opens one. `:Dyadic new` opens
 another agent and pi process. An agent shows one pi session at a time;
 `/new` and `/resume` change the session without changing the agent.
+Pi runs a session in the directory it was created in, so the agent's
+working directory follows a resumed session; paths in the history and the
+composer resolve against it.
 
 The history and composer are scratch buffers named `dyadic://<id>/history`
 and `dyadic://<id>/composer`. Hiding them does not interrupt the agent.

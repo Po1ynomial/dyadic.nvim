@@ -41,6 +41,31 @@ T("status resyncs after a compaction pi started itself", function()
   end)
 end)
 
+T("the agent's directory follows a resumed session's", function()
+  local agent = H.open()
+  local file = vim.fn.tempname() .. ".jsonl"
+  vim.fn.writefile({ vim.json.encode({ type = "session", id = "s2", cwd = "/elsewhere" }) }, file)
+  H.request(agent, "test_set", { state = { sessionId = "s2", sessionFile = file } })
+  local done = false
+  agent:refresh(function()
+    done = true
+  end)
+  H.wait(function()
+    return done
+  end)
+  eq(agent.cwd, "/elsewhere")
+  -- A new session has no file yet and keeps the directory.
+  H.request(agent, "test_set", { state = { sessionId = "s3", sessionFile = file .. ".new" } })
+  done = false
+  agent:refresh(function()
+    done = true
+  end)
+  H.wait(function()
+    return done
+  end)
+  eq(agent.cwd, "/elsewhere")
+end)
+
 T("notices go through vim.notify, not the history", function()
   local agent = H.open()
   agent:set_draft("/session")

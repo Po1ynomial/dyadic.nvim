@@ -252,6 +252,14 @@ function Agent:refresh(callback)
       ExtensionUI.dispose_dialogs(self)
       require("dyadic.change_notes").forget(self)
     end
+    -- Pi runs a session in the directory it was created in, which a resumed session can
+    -- change. A new session has no file yet and keeps the directory.
+    if state.sessionFile ~= self.state.sessionFile then
+      local header = require("dyadic.sessions").header(state.sessionFile)
+      if header then
+        self.cwd = vim.fs.normalize(header.cwd)
+      end
+    end
     self.state = state
     self.active = state.isStreaming == true or state.isCompacting == true
     self.phase = state.isCompacting and "Compacting" or (self.active and "Working" or "Idle")
