@@ -321,11 +321,11 @@ local function same(a, b)
   return true
 end
 
--- Where the buffer differs from the original: { as, ae, bs, be } 0-based, end-exclusive
--- line ranges in the original and in the buffer.
-local function changes(review, lines)
+-- Where the buffer differs from `base`: { as, ae, bs, be } 0-based, end-exclusive line
+-- ranges in `base` and in the buffer.
+local function changes(base, lines)
   local list = {}
-  local raw = Files.diff(joined(review.original), joined(lines), { result_type = "indices", algorithm = "histogram" })
+  local raw = Files.diff(joined(base), joined(lines), { result_type = "indices", algorithm = "histogram" })
   ---@cast raw integer[][]
   for _, block in ipairs(raw) do
     local as = block[2] == 0 and block[1] or block[1] - 1
@@ -336,15 +336,17 @@ local function changes(review, lines)
 end
 
 -- What a hunk's place in the buffer shows ("new", "old", or "other"), the row where its
--- lines start, and how many lines it has there. Changes that overlap the hunk, or for an
--- insertion touch it, count as part of it.
-local function locate(review, hunk, blocks, lines)
-  local s, e = hunk.s, hunk.e
+-- lines start, and how many lines it has there. `blocks` are the user's edits: how the
+-- buffer differs from `base`, the text the decisions leave, where the hunk is `span`.
+-- Edits that overlap the hunk count as part of it; edits next to it do not, except that
+-- lines inserted at the place of a hunk without lines go to it.
+local function locate(hunk, blocks, lines, base, span)
+  local s, e = span[1], span[2]
   local us, ue, grow, hit = s, e, 0, {}
   for i, block in ipairs(blocks) do
     local overlaps
     if s == e then
-      overlaps = block.as <= s and s <= block.ae
+      overlaps = (block.as < s and s < block.ae) or (block.as == s and block.ae == s)
     else
       overlaps = (block.as < e and s < block.ae) or (block.as == block.ae and s < block.as and block.as < e)
     end
@@ -362,12 +364,14 @@ local function locate(review, hunk, blocks, lines)
   end
   local first = us + shift
   local region = vim.list_slice(lines, first + 1, first + (ue - us) + grow)
-  local before = vim.list_slice(review.original, us + 1, s)
-  local after = vim.list_slice(review.original, e + 1, ue)
-  local proposed = vim.list_extend(vim.list_extend(vim.list_extend({}, before), hunk.lines), after)
-  if same(region, proposed) then
+  local before = vim.list_slice(base, us + 1, s)
+  local after = vim.list_slice(base, e + 1, ue)
+  local function around(middle)
+    return vim.list_extend(vim.list_extend(vim.list_extend({}, before), middle), after)
+  end
+  if same(region, around(hunk.lines)) then
     return "new", first + (s - us), hunk.count
-  elseif same(region, vim.list_slice(review.original, us + 1, ue)) then
+  elseif same(region, around(hunk.old)) then
     return "old", first + (s - us), hunk.old_count
   end
   return "other", first, #region
@@ -499,22 +503,25 @@ local function draw(review)
 end
 
 -- The text that should be in the buffer if nobody touched it: the original with the
--- accepted hunks applied.
-local function expected(review)
-  local result, line = {}, 1
+-- accepted hunks applied, and with `pending_too` the pending ones too. Also each hunk's
+-- place in it: spans[hunk] = { start, end }, 0-based, end-exclusive.
+local function expected(review, pending_too)
+  local result, line, spans = {}, 1, {}
   for _, hunk in ipairs(review.hunks) do
     while line <= hunk.s do
       result[#result + 1] = review.original[line]
       line = line + 1
     end
-    vim.list_extend(result, hunk.state == "accepted" and hunk.lines or hunk.old)
+    local new = hunk.state == "accepted" or (pending_too and hunk.state == "pending")
+    spans[hunk] = { #result, #result + (new and hunk.count or hunk.old_count) }
+    vim.list_extend(result, new and hunk.lines or hunk.old)
     line = line + hunk.old_count
   end
   while line <= #review.original do
     result[#result + 1] = review.original[line]
     line = line + 1
   end
-  return result
+  return result, spans
 end
 
 local function where(hunk)
@@ -705,18 +712,26 @@ local function reconcile(review)
     return
   end
   local before = #pending(review)
-  local lines = content_lines(review.buf)
-  local blocks = changes(review, lines)
   for _, hunk in ipairs(review.hunks) do
-    local text, first, rows = locate(review, hunk, blocks, lines)
     local made = decision(review, hunk, path)
-    hunk.first, hunk.rows, hunk.edited = first, rows, text ~= "new"
     if made then
       hunk.state = made.accept and "accepted" or "rejected"
     else
       hunk.state = "pending"
     end
     hunk.reason = made and not made.accept and made.reason or nil
+  end
+  -- Against the text the decisions leave, the differences are the user's edits alone, so
+  -- an edit next to a hunk stays apart from it. Against the original, a line diff would
+  -- join the two into one change.
+  local base, spans = expected(review, true)
+  local lines = content_lines(review.buf)
+  local blocks = changes(base, lines)
+  for _, hunk in ipairs(review.hunks) do
+    local text, first, rows = locate(hunk, blocks, lines, base, spans[hunk])
+    -- A rejected hunk's place shows its old lines.
+    local agent = hunk.state == "rejected" and "old" or "new"
+    hunk.first, hunk.rows, hunk.edited = first, rows, text ~= agent
   end
   if #pending(review) == 0 then
     finish(review, nil)

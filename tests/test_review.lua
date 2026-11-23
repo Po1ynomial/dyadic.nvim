@@ -622,6 +622,67 @@ T("lines added above move the hunks and their marks", function()
   eq(states(buf), { "accepted", "pending" })
 end)
 
+-- A review of `new` for a file holding `old`, shown in the main area; returns the buffer.
+local function review_of(old, new)
+  local agent, log = open()
+  local path = file(old)
+  propose(agent, log, path, table.concat(new, "\n") .. "\n")
+  local buf = require("dyadic.files").buffer(path)
+  show(buf)
+  return buf
+end
+
+-- The agent removes x.
+local REMOVAL = { { "a", "x", "b", "c", "d" }, { "a", "b", "c", "d" } }
+
+T("an edit right below a removal stays out of the hunk", function()
+  local buf = review_of(unpack(REMOVAL))
+  press("ccB<Esc>", 2)
+  eq(edited(buf), { false })
+  eq(marked(buf), {})
+  ok(vim.tbl_contains(virtual(buf)[2], "x"))
+  press("gs", 2)
+  eq(lines(buf), { "a", "x", "B", "c", "d" })
+end)
+
+T("an edit right above a removal stays out of the hunk, and above its removed lines", function()
+  local buf = review_of(unpack(REMOVAL))
+  press("ccA<Esc>", 1)
+  eq(edited(buf), { false })
+  eq(marked(buf), {})
+  ok(vim.tbl_contains(virtual(buf)[2], "x"))
+  press("gs", 2)
+  eq(lines(buf), { "A", "x", "b", "c", "d" })
+end)
+
+T("deleting the line below a removal keeps the removal on the next line", function()
+  local buf = review_of(unpack(REMOVAL))
+  press("dd", 2)
+  eq(edited(buf), { false })
+  ok(vim.tbl_contains(virtual(buf)[2], "x"))
+  press("gs", 2)
+  eq(lines(buf), { "a", "x", "c", "d" })
+end)
+
+T("an edit between two close hunks joins neither", function()
+  local buf = review_of({ "a", "b", "c", "d" }, { "A", "b", "C", "d" })
+  press("ccB<Esc>", 2)
+  eq(edited(buf), { false, false })
+  eq(marked(buf), { 1, 3 })
+  press("gs", 1)
+  eq(lines(buf), { "a", "B", "C", "d" })
+  eq(states(buf), { "rejected", "pending" })
+end)
+
+T("an added line retyped as a copy of its neighbour stays in its hunk", function()
+  local buf = review_of({ "a", "b", "c" }, { "a", "X", "b", "c" })
+  press("ccb<Esc>", 2)
+  eq(edited(buf), { true })
+  eq(marked(buf), { 2 })
+  press("gs", 2)
+  eq(lines(buf), { "a", "b", "c" })
+end)
+
 T("a rejected hunk edited afterwards stays rejected, and the edit is reported", function()
   local _, log, id, buf = two_hunks()
   reason("no metatable")

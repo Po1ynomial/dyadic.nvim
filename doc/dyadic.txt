@@ -535,8 +535,10 @@ own on the same key comes back afterwards. Change or disable them with
 Only the keys decide; editing never does, so it never ends a review. You may
 edit inside an undecided hunk in as many steps as you like: its banner then
 says `edited`, accept takes your version, and reject puts the old lines
-back. After your decisions the model learns what landed: the whole change,
-which hunks you rejected and why, and whether you also edited the file.
+back. Edits next to a hunk, even on the line right beside it, stay out of
+it, so reject leaves them alone. After your decisions the model learns what
+landed: the whole change, which hunks you rejected and why, and whether you
+also edited the file.
 Rejecting all of a new file's content leaves no buffer behind; windows that
 showed it stay and show the file shown before. When the run is aborted
 during a review, accepted hunks and undecided ones you edited stay, and the
