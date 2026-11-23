@@ -92,18 +92,27 @@ local function spawn(args)
     end
   end, args)
   agents[agent.id], last = agent, agent
+  -- Unloading the history or composer, as :bd, :bunload, and :bwipeout do, ends the agent:
+  -- the buffers are unlisted, so BufDelete never fires, and unloading takes their text. :e
+  -- unloads too, but loads the buffer again at once; then the text comes back instead.
   local group = vim.api.nvim_create_augroup("DyadicAgent" .. agent.id, { clear = true })
-  vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
-    group = group,
-    buffer = agent.history_buf,
-    once = true,
-    callback = function()
-      agent:close(true)
-      vim.schedule(function()
-        pcall(vim.api.nvim_del_augroup_by_id, group)
-      end)
-    end,
-  })
+  for _, buf in ipairs({ agent.history_buf, agent.composer_buf }) do
+    vim.api.nvim_create_autocmd("BufUnload", {
+      group = group,
+      buffer = buf,
+      callback = function()
+        local draft = buf == agent.composer_buf and vim.api.nvim_buf_get_lines(buf, 0, -1, false) or nil
+        vim.schedule(function()
+          if not agent.closed and vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_is_loaded(buf) then
+            require("dyadic.view").reloaded(agent, buf, draft)
+            return
+          end
+          agent:close()
+          pcall(vim.api.nvim_del_augroup_by_id, group)
+        end)
+      end,
+    })
+  end
   require("dyadic.view").show(agent)
   return agent
 end

@@ -158,4 +158,63 @@ T("closing ends the pi process", function()
   ok(vim.uv.kill(pid, 0) ~= 0, "pi is still running")
 end)
 
+-- The history and composer are unlisted, so these never fire BufDelete.
+for _, where in ipairs({ "history", "composer" }) do
+  for _, command in ipairs({ "bd", "bd!", "bunload", "bwipeout", "%bd", "bd N" }) do
+    T(":" .. command .. " on the " .. where .. " ends the agent", function()
+      local agent = H.open()
+      local Composer = require("dyadic.composer")
+      local buf = where == "history" and agent.history_buf or agent.composer_buf
+      local pid = agent.rpc.pid
+      if command == "bd N" then
+        vim.cmd("vnew")
+        H.settle()
+        vim.cmd("bd " .. buf)
+      else
+        vim.api.nvim_set_current_win(where == "history" and Composer.anchor(agent) or Composer.window(agent))
+        vim.cmd(command)
+      end
+      H.wait(function()
+        return agent.closed and agent.rpc._finished == true
+      end, 3000, "the agent to end")
+      ok(vim.uv.kill(pid, 0) ~= 0, "pi is still running")
+      eq(vim.api.nvim_buf_is_valid(agent.history_buf), false)
+      eq(vim.api.nvim_buf_is_valid(agent.composer_buf), false)
+      eq(require("dyadic").list(), {})
+    end)
+  end
+end
+
+T(":e reloads the history and composer and keeps the agent", function()
+  local agent = H.open({
+    entries = H.chain({
+      { role = "user", content = "question", timestamp = 1 },
+      { role = "assistant", content = { { type = "text", text = "line one\n\nline two" } }, timestamp = 2 },
+    }),
+  })
+  agent:set_draft("draft\ntext")
+  H.settle()
+  local Composer = require("dyadic.composer")
+  local function snapshot(buf)
+    return {
+      lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false),
+      marks = #vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, {}),
+      highlighted = vim.treesitter.highlighter.active[buf] ~= nil,
+    }
+  end
+  for _, where in ipairs({ "history", "composer" }) do
+    local buf = where == "history" and agent.history_buf or agent.composer_buf
+    local before = snapshot(buf)
+    vim.api.nvim_set_current_win(where == "history" and Composer.anchor(agent) or Composer.window(agent))
+    for _, command in ipairs({ "e", "e!" }) do
+      vim.cmd(command)
+      H.settle()
+      eq(agent.closed, false, where .. " " .. command)
+      eq(snapshot(buf), before, where .. " " .. command)
+    end
+  end
+  eq(agent:get_draft(), "draft\ntext")
+  eq(H.row_texts(agent), { "▍ You", "▍ Assistant" })
+end)
+
 return T

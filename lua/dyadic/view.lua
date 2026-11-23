@@ -552,14 +552,6 @@ function M.show(agent)
   if agent.closed or not valid_buf(agent.history_buf) then
     return
   end
-  if not valid_buf(agent.composer_buf) or not api.nvim_buf_is_loaded(agent.composer_buf) then
-    views[agent.composer_buf] = nil
-    if valid_buf(agent.composer_buf) then
-      api.nvim_buf_delete(agent.composer_buf, { force = true })
-    end
-    agent.composer_buf = create_buffer(agent, "dyadic_composer", "composer", true)
-    M.bind(agent)
-  end
   local anchor = agent.config.placement == "sidebar" and Sidebar.show(agent) or free_placement(agent)
   for _, win in ipairs(vim.fn.win_findbuf(agent.history_buf)) do
     if not window_states[win] then
@@ -903,6 +895,25 @@ function M.render(agent, opts)
   write(agent, model, previous)
   statuslines(agent)
   Detail.refresh(agent)
+end
+
+-- A buffer reloaded with :e lost its text and marks: the composer gets back the draft it had
+-- when unloaded, and the history is written again in full.
+function M.reloaded(agent, buf, draft)
+  if agent.closed or not agent._view or agent._view.disposed then
+    return
+  end
+  api.nvim_buf_clear_namespace(buf, -1, 0, -1)
+  if not pcall(vim.treesitter.start, buf, "markdown") then
+    vim.bo[buf].syntax = "markdown"
+  end
+  if buf == agent.composer_buf then
+    api.nvim_buf_set_lines(buf, 0, -1, false, draft or { "" })
+    vim.bo[buf].modified = false
+  else
+    agent._view.lines, agent._view.model = nil, nil
+  end
+  M.render(agent, { force = true })
 end
 
 function M.dispose(agent)

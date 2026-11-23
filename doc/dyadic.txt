@@ -109,11 +109,14 @@ Pi runs a session in the directory it was created in, so the agent's
 working directory follows a resumed session; paths in the history and the
 composer resolve against it.
 
-The history and composer are scratch buffers named `dyadic://<id>/history`
-and `dyadic://<id>/composer`. Hiding them does not interrupt the agent.
-Deleting the history buffer or running `:Dyadic close` ends the agent's
-process and disposes its composer, details, and pending extension dialogs.
-Closing an agent never deletes its session file.
+The history and composer are unlisted scratch buffers named
+`dyadic://<id>/history` and `dyadic://<id>/composer`. Hiding them does not
+interrupt the agent. Running `:Dyadic close`, or unloading either buffer
+with |:bdelete|, |:bunload|, or |:bwipeout| (also as `:%bd`), ends the
+agent's process and disposes its buffers, details, and pending extension
+dialogs. |:edit| in either buffer only reloads it: the history is written
+again and the composer keeps the draft. Closing an agent never deletes its
+session file.
 
 Quit guard                                                *dyadic-quit-guard*
 While any agent streams, compacts, retries, or runs a shell command, quitting
