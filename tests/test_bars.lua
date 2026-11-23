@@ -78,6 +78,8 @@ T("the footer shows context, cost, model, level, and extension statuses", functi
   agent.statuses = { b = "lint ok", a = "git main" }
   rerender(agent)
   eq(footer_texts(agent), { "ctx 45%/200k (auto) · $0.123", "big-model · high", "git main · lint ok" })
+  -- The level has its color, as pi's editor border; the rest stays gray.
+  eq(footer(agent)[2].groups, { "DyadicFooter", "DyadicFooter", "DyadicThinkingHigh" })
   -- After a compaction pi reports no percentage until the next response.
   agent.stats = { cost = 0, contextUsage = { tokens = vim.NIL, contextWindow = 200000, percent = vim.NIL } }
   agent.state.autoCompactionEnabled = false
@@ -85,9 +87,43 @@ T("the footer shows context, cost, model, level, and extension statuses", functi
   agent.statuses = {}
   rerender(agent)
   eq(footer_texts(agent), { "ctx ?/200k", "big-model · thinking off" })
+  eq(footer(agent)[2].groups[3], "DyadicThinkingOff")
   agent.stats = { contextUsage = { contextWindow = 200000, percent = 91 } }
   rerender(agent)
   eq(footer(agent)[1].groups, { "DyadicFooter", "DyadicError" })
+end)
+
+T("the separator below the history has the thinking level's color, or shell mode's", function()
+  vim.o.winhighlight = "Normal:Mine,WinSeparator:Theirs"
+  local agent = H.open()
+  local win = H.history_win(agent)
+  eq(vim.wo[win].winhighlight, "Normal:Mine,WinSeparator:DyadicThinkingOff")
+  agent.state.thinkingLevel = "xhigh"
+  rerender(agent)
+  eq(vim.wo[win].winhighlight, "Normal:Mine,WinSeparator:DyadicThinkingXhigh")
+  agent:set_draft("  !ls")
+  vim.api.nvim_exec_autocmds("TextChanged", { buffer = agent.composer_buf })
+  eq(vim.wo[win].winhighlight, "Normal:Mine,WinSeparator:DyadicShellMode")
+  agent:set_draft("ls")
+  vim.api.nvim_exec_autocmds("TextChanged", { buffer = agent.composer_buf })
+  eq(vim.wo[win].winhighlight, "Normal:Mine,WinSeparator:DyadicThinkingXhigh")
+  -- The window gets its own value back when the pair hides.
+  require("dyadic").command("toggle")
+  H.settle()
+  for _, other in ipairs(api.nvim_tabpage_list_wins(0)) do
+    eq(vim.wo[other].winhighlight, "Normal:Mine,WinSeparator:Theirs")
+  end
+end)
+
+T("the thinking colors are pi's, for dark and light backgrounds", function()
+  local function fg(name)
+    return api.nvim_get_hl(0, { name = name }).fg
+  end
+  require("dyadic.view")
+  eq({ fg("DyadicThinkingHigh"), fg("DyadicShellMode") }, { 0x9776e5, 0x5eb286 })
+  vim.o.background = "light"
+  vim.cmd("colorscheme default")
+  eq({ fg("DyadicThinkingHigh"), fg("DyadicShellMode") }, { 0xb5a5e8, 0x40976c })
 end)
 
 T("the statusline shows the buffer and pi's session ID", function()

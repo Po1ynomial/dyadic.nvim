@@ -39,6 +39,27 @@ function M.history_winbar(agent)
   return " " .. hl("DyadicTitle", title) .. "%=%<" .. hl("DyadicMeta", cwd) .. " "
 end
 
+local THINKING = {
+  off = "DyadicThinkingOff",
+  minimal = "DyadicThinkingMinimal",
+  low = "DyadicThinkingLow",
+  medium = "DyadicThinkingMedium",
+  high = "DyadicThinkingHigh",
+  xhigh = "DyadicThinkingXhigh",
+  max = "DyadicThinkingMax",
+}
+
+-- The group of the agent's thinking level, as pi colors its editor border.
+function M.thinking_group(agent)
+  return THINKING[(agent.state or {}).thinkingLevel or "off"] or THINKING.off
+end
+
+-- The color of pi's editor border: the shell mode's while the draft is a shell command,
+-- else the thinking level's.
+function M.border_group(agent, shell)
+  return shell and "DyadicShellMode" or M.thinking_group(agent)
+end
+
 local function busy(agent)
   return agent.active or (agent.bash and agent.bash.running) or false
 end
@@ -108,12 +129,13 @@ function M.footer(agent)
   end
 
   if model.id then
-    local value = one_line(model.id)
+    local line = { { one_line(model.id), "DyadicFooter" } }
     if model.reasoning then
       local level = state.thinkingLevel or "off"
-      value = value .. " · " .. (level == "off" and "thinking off" or one_line(level))
+      line[#line + 1] = { " · ", "DyadicFooter" }
+      line[#line + 1] = { level == "off" and "thinking off" or one_line(level), M.thinking_group(agent) }
     end
-    lines[#lines + 1] = { { value, "DyadicFooter" } }
+    lines[#lines + 1] = line
   end
 
   local statuses = {}

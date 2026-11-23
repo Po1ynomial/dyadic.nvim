@@ -10,10 +10,11 @@ local lines_of, one_line, sorted_keys = text.lines_of, text.one_line, text.sorte
 
 local views = {}
 local window_states = {}
-local owned_options = { "wrap", "linebreak", "number", "relativenumber", "signcolumn", "statusline", "winbar" }
+local owned_options =
+  { "wrap", "linebreak", "number", "relativenumber", "signcolumn", "statusline", "winbar", "winhighlight" }
 local rows_ns = api.nvim_create_namespace("dyadic_history")
 local widgets_ns = api.nvim_create_namespace("dyadic_widgets")
-local render_widgets, statuslines
+local render_widgets, statuslines, separators
 
 -- Plugins that resolve the parser from 'filetype' (markdown renderers) find markdown too.
 vim.treesitter.language.register("markdown", { "dyadic", "dyadic_composer" })
@@ -61,6 +62,30 @@ local function define_word_highlights()
   end
 end
 
+-- pi's colors for the editor border, by thinking level and in shell mode, resolved from its
+-- dark and light themes. Terminals without GUI colors get those of a standard group.
+local THINKING = {
+  DyadicThinkingOff = { 0x6c767b, 0xc2c8ca, "Comment" },
+  DyadicThinkingMinimal = { 0x68808d, 0xb5c4cb, "Comment" },
+  DyadicThinkingLow = { 0x5489a4, 0x9fc2d5, "DiagnosticInfo" },
+  DyadicThinkingMedium = { 0x6185cc, 0xa2b7e0, "Function" },
+  DyadicThinkingHigh = { 0x9776e5, 0xb5a5e8, "Statement" },
+  DyadicThinkingXhigh = { 0xde54c1, 0xe585cd, "Special" },
+  DyadicThinkingMax = { 0xfe5462, 0xfe7479, "DiagnosticError" },
+  DyadicShellMode = { 0x5eb286, 0x40976c, "DiagnosticOk" },
+}
+
+local function define_thinking_highlights()
+  local light = vim.o.background == "light"
+  for name, colors in pairs(THINKING) do
+    api.nvim_set_hl(0, name, {
+      fg = light and colors[2] or colors[1],
+      ctermfg = resolved(colors[3]).ctermfg,
+      default = true,
+    })
+  end
+end
+
 local function define_highlights()
   for name, link in pairs({
     DyadicTitle = "Title",
@@ -98,6 +123,7 @@ local function define_highlights()
     api.nvim_set_hl(0, name, { link = link, default = true })
   end
   define_word_highlights()
+  define_thinking_highlights()
 end
 define_highlights()
 -- :colorscheme runs :hi clear, which drops these links.
@@ -523,6 +549,7 @@ function M.new(agent)
       if ev.buf == agent.composer_buf and not agent.closed then
         render_widgets(agent)
         Composer.resize(agent)
+        separators(agent)
       end
     end,
   })
@@ -684,6 +711,44 @@ local function spin(agent)
   end
 end
 
+-- Whether the draft is a shell command, which pi marks with its own border color.
+local function shell_draft(agent)
+  if not valid_buf(agent.composer_buf) then
+    return false
+  end
+  for _, line in ipairs(api.nvim_buf_get_lines(agent.composer_buf, 0, -1, false)) do
+    local first = line:match("%S")
+    if first then
+      return first == "!"
+    end
+  end
+  return false
+end
+
+-- `original` 'winhighlight' with the separator mapped to `group`.
+local function with_separator(original, group)
+  local parts = {}
+  for part in vim.gsplit(original or "", ",", { plain = true, trimempty = true }) do
+    if not part:match("^WinSeparator:") then
+      parts[#parts + 1] = part
+    end
+  end
+  parts[#parts + 1] = "WinSeparator:" .. group
+  return table.concat(parts, ",")
+end
+
+-- The separator below the history, pi's editor border: the thinking level's color, or the
+-- shell mode's. The separator belongs to the window above it.
+separators = function(agent)
+  local group = Bars.border_group(agent, shell_draft(agent))
+  for _, win in ipairs(vim.fn.win_findbuf(agent.history_buf)) do
+    if valid_win(win) then
+      local saved = window_states[win]
+      set_option(win, "winhighlight", with_separator(saved and saved.options.winhighlight or "", group))
+    end
+  end
+end
+
 -- Window bars and statuslines of the agent's windows.
 statuslines = function(agent)
   local statusline = agent.config.statusline ~= false
@@ -701,6 +766,7 @@ statuslines = function(agent)
       set_option(win, "statusline", Bars.statusline(agent, "composer"))
     end
   end
+  separators(agent)
   composer_bar(agent)
   spin(agent)
 end

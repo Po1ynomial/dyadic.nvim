@@ -278,7 +278,12 @@ The composer holds the draft, the unsent text, plus status around it:
     `extension statuses`
   The percentage is `?` while pi reports none, as right after a compaction,
   and turns to warning and error colors above 70% and 90%. A zero cost is
-  hidden.
+  hidden. The thinking level has its color, as pi's editor border.
+- The separator between the history and the composer, which Neovim draws
+  with 'laststatus' at 3, is pi's editor border: it has the thinking
+  level's color, or the shell mode's while the draft starts with `!`. dyadic
+  sets `WinSeparator` in the history window's 'winhighlight' for it, which
+  also colors a vertical separator to the history's right.
 - Extension widgets placed above the editor come before the draft.
 
 In the draft, what will mean something to pi or dyadic is highlighted: a
@@ -862,6 +867,21 @@ override them.
   DyadicCommand           A command the draft runs      Statement
   DyadicShell             A shell command's ! or !!     PreProc
   DyadicReference         An @path that exists          Underlined
+  DyadicThinkingOff       Thinking level off            (see below)
+  DyadicThinkingMinimal   Thinking level minimal        (see below)
+  DyadicThinkingLow       Thinking level low            (see below)
+  DyadicThinkingMedium    Thinking level medium         (see below)
+  DyadicThinkingHigh      Thinking level high           (see below)
+  DyadicThinkingXhigh     Thinking level xhigh          (see below)
+  DyadicThinkingMax       Thinking level max            (see below)
+  DyadicShellMode         A shell command draft         (see below)
+
+The thinking and shell mode groups color the separator below the history
+and the level in the footer. They have pi's colors, from its dark or light
+theme as 'background' says, and in terminals without GUI colors those of
+`Comment` (off, minimal), `DiagnosticInfo` (low), `Function` (medium),
+`Statement` (high), `Special` (xhigh), `DiagnosticError` (max), and
+`DiagnosticOk` (shell mode).
 
 Changed words get their line's tint, stronger: `DyadicReviewAddText` has the
 background of `DyadicReviewAdd` moved twice as far from `Normal`'s, and the
