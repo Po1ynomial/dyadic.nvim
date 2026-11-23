@@ -8,6 +8,9 @@ local api = vim.api
 
 -- agent -> tabpage -> { win = composer window, anchor = history window }
 local attached = {}
+-- History window -> { agent, buf }: the buffer the window showed before the free placement
+-- took it for the agent's pair.
+local taken = {}
 -- Windows created since the last check; only these can be intruders.
 local created = {}
 -- tabpage -> the window last focused outside any history/composer pair.
@@ -292,24 +295,42 @@ function M.close(agent, tab)
   end
 end
 
--- Hide the agent's pair in a tab, the current one by default. Returns false when the pair
--- is all the tab has.
+-- Remember the buffer a window showed before it became the agent's history window.
+function M.take(agent, win, buf)
+  taken[win] = buf and { agent = agent, buf = buf } or nil
+end
+
+-- The buffer a history window showed before it was taken, if it is still there.
+function M.taken(win)
+  local entry = taken[win]
+  return entry and api.nvim_buf_is_valid(entry.buf) and entry.buf or nil
+end
+
+-- Hide the agent's pair in a tab, the current one by default. The history window shows
+-- the buffer it had before; a window opened for the pair closes, or, when it is all the
+-- tab has besides the composer, shows the file used last.
 function M.hide(agent, tab)
   tab = tab or api.nvim_get_current_tabpage()
   local state = state_of(agent, tab)
   if not state then
-    return true
+    return
   end
+  set_state(agent, tab, nil)
+  local previous = M.taken(state.anchor)
+  taken[state.anchor] = nil
   local others = vim.tbl_filter(function(win)
     return win ~= state.win and win ~= state.anchor
   end, tiled(tab))
-  if #others == 0 then
-    return false
-  end
-  set_state(agent, tab, nil)
   pcall(api.nvim_win_close, state.win, true)
-  pcall(api.nvim_win_close, state.anchor, true)
-  return true
+  if not valid_win(state.anchor) then
+    return
+  end
+  if not previous and #others > 0 then
+    pcall(api.nvim_win_close, state.anchor, true)
+    return
+  end
+  previous = previous or require("dyadic.files").recent() or api.nvim_create_buf(true, false)
+  api.nvim_win_set_buf(state.anchor, previous)
 end
 
 -- Open a history window above a composer that lost its own and make them a pair again.
@@ -348,6 +369,9 @@ local function check_agent(agent, tab, state)
     return
   end
   if not has_anchor then
+    if taken[anchor] and taken[anchor].agent == agent then
+      taken[anchor] = nil
+    end
     if valid_win(anchor) or #tiled(tab) > 1 then
       -- The history window shows another buffer now, or closed beside other windows.
       M.close(agent, tab)
@@ -439,20 +463,22 @@ local function adopt_outsiders()
     local win, agent = item[1], item[2]
     local tab = api.nvim_win_get_tabpage(win)
     local current = api.nvim_get_current_win() == win
+    local previous = api.nvim_win_call(win, function()
+      return vim.fn.bufnr("#")
+    end)
+    if previous < 1 or view().agent_of(previous) then
+      previous = nil
+    end
     if agent.config.placement == "free" then
       M.hide(agent, tab)
+      M.take(agent, win, M.taken(win) or previous)
       if api.nvim_win_get_buf(win) ~= agent.history_buf then
         api.nvim_win_set_buf(win, agent.history_buf)
       end
       view().adopt(win)
       M.attach(agent, win, current)
     else
-      local previous = api.nvim_win_call(win, function()
-        return vim.fn.bufnr("#")
-      end)
-      if previous < 1 or previous == agent.history_buf or previous == agent.composer_buf then
-        previous = require("dyadic.files").recent() or api.nvim_create_buf(true, false)
-      end
+      previous = previous or require("dyadic.files").recent() or api.nvim_create_buf(true, false)
       api.nvim_win_set_buf(win, previous)
       if current and tab == api.nvim_get_current_tabpage() then
         require("dyadic").show(agent)
@@ -562,7 +588,12 @@ api.nvim_create_autocmd("WinEnter", {
 })
 api.nvim_create_autocmd({ "WinClosed", "WinResized", "VimResized", "TabEnter", "BufWinEnter" }, {
   group = group,
-  callback = M.schedule_check,
+  callback = function(ev)
+    if ev.event == "WinClosed" then
+      taken[tonumber(ev.match)] = nil
+    end
+    M.schedule_check()
+  end,
 })
 api.nvim_create_autocmd("QuitPre", {
   group = group,

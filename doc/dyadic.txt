@@ -183,6 +183,9 @@ the tab with one agent's history and its composer.
 
 `"free"`: `:Dyadic` shows the agent's pair of the tab, or turns the current
 window into it.
+- Hiding the pair gives that window back the buffer it showed before, with
+  its window options. A window opened for the pair, as from a float,
+  closes, or shows the file you used last when the tab has nothing else.
 
 ==============================================================================
 5. HISTORY                                                    *dyadic-history*
@@ -504,7 +507,7 @@ comes first.
 :Dyadic {-pi-args}      Open another agent with pi arguments, such as
                         `-c`, `-r`, or `--model x` (|dyadic-pi-arguments|).
 :Dyadic toggle          Hide or show this tab's sidebar, or with the free
-                        placement, the last agent's windows in this tab.
+                        placement, the last agent's pair in this tab.
 :Dyadic agents          Choose among live agents.
 :Dyadic composer        Focus the composer, opening it if needed.
 :Dyadic {action}        `submit`, `follow_up`, `dequeue`, `abort`, `close`.

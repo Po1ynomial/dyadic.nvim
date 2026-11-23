@@ -467,8 +467,10 @@ function M.new(agent)
   return agent.history_buf, agent.composer_buf
 end
 
--- Free placement: an existing history window in this tab, else the current window. A
--- composer or floating window is not replaced; its tab gets a new split instead.
+-- Free placement: an existing history window in this tab, else the current window, which
+-- gets back what it showed when the pair hides. Another agent's pair passes on what its
+-- window showed before. A composer or floating window is not replaced; its tab gets a new
+-- split instead.
 local function free_placement(agent)
   local win = history_window(agent)
   if win then
@@ -481,6 +483,9 @@ local function free_placement(agent)
   end
   if api.nvim_win_get_config(win).relative ~= "" or vim.wo[win].winfixbuf then
     win = api.nvim_open_win(agent.history_buf, true, { split = "above", win = -1 })
+  else
+    local shown = api.nvim_win_get_buf(win)
+    Composer.take(agent, win, Composer.taken(win) or (not views[shown] and shown or nil))
   end
   api.nvim_win_set_buf(win, agent.history_buf)
   return win

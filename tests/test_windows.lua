@@ -158,21 +158,49 @@ T(":close leaves a pair that is all the tab has", function()
   end
 end)
 
-T("toggle hides the free pair, but not when it is all the tab has", function()
+T("hiding the free pair gives its window back what it showed", function()
+  local file = vim.fn.tempname() .. ".txt"
+  vim.fn.writefile({ "x" }, file)
+  vim.cmd("edit " .. file)
+  local buf, win = api.nvim_get_current_buf(), api.nvim_get_current_win()
+  vim.wo[win].number = true
   local agent = H.open(nil, { placement = "free" })
+  eq(Composer.anchor(agent), win)
+  eq(vim.wo[win].number, false)
+  for _ = 1, 2 do
+    require("dyadic").command("toggle")
+    H.settle()
+    eq(api.nvim_list_wins(), { win })
+    eq(api.nvim_win_get_buf(win), buf)
+    eq(vim.wo[win].number, true)
+    require("dyadic").command("toggle")
+    H.settle()
+    eq(Composer.anchor(agent), win)
+    ok(attached(agent), vim.inspect(vim.fn.winlayout()))
+  end
+end)
+
+T("a window opened for the free pair closes when it hides", function()
+  local agent = H.open(nil, { placement = "free" })
+  local main = api.nvim_list_wins()[1]
+  api.nvim_set_current_win(main)
   require("dyadic").command("toggle")
   H.settle()
-  eq(#api.nvim_list_wins(), 2)
-  ok(_G.notes[#_G.notes].msg:find("only windows in this tab", 1, true), vim.inspect(_G.notes))
-  vim.cmd("vnew")
+  -- From a float, the pair opens in a new split.
+  local float = api.nvim_open_win(api.nvim_create_buf(false, true), true, {
+    relative = "editor",
+    row = 1,
+    col = 1,
+    width = 10,
+    height = 2,
+  })
+  require("dyadic").command("")
   H.settle()
+  api.nvim_win_close(float, true)
+  ok(Composer.anchor(agent) ~= main, "the pair took the main window")
   require("dyadic").command("toggle")
   H.settle()
-  eq(#api.nvim_list_wins(), 1)
-  eq(vim.fn.win_findbuf(agent.history_buf), {})
-  require("dyadic").command("toggle")
-  H.settle()
-  ok(attached(agent), vim.inspect(vim.fn.winlayout()))
+  eq(api.nvim_list_wins(), { main })
 end)
 
 T(":q in a composer whose only neighbour is its history quits both", function()
@@ -228,7 +256,8 @@ T("a history or composer buffer shown elsewhere moves the free pair there", func
     H.settle()
     eq(Composer.anchor(agent), win)
     ok(attached(agent), vim.inspect(vim.fn.winlayout()))
-    eq(api.nvim_win_is_valid(first), false)
+    -- The pair's old window shows what it had before.
+    ok(api.nvim_win_is_valid(first) and not require("dyadic.view").agent_of(api.nvim_win_get_buf(first)))
     eq(#vim.fn.win_findbuf(agent.history_buf), 1)
     eq(agent:get_draft(), "kept")
     first = win

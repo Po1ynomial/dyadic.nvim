@@ -164,9 +164,7 @@ function M.toggle()
   if not Composer.anchor(agent) then
     return M.show(agent)
   end
-  if not Composer.hide(agent) then
-    vim.notify("Dyadic: the history and composer are the only windows in this tab", vim.log.levels.WARN)
-  end
+  Composer.hide(agent)
 end
 
 function M.action(name)
