@@ -11,6 +11,8 @@ local attached = {}
 -- History window -> { agent, buf }: the buffer the window showed before the free placement
 -- took it for the agent's pair.
 local taken = {}
+-- agent -> "history" or "composer": the window of its pairs entered last.
+local focused = {}
 -- Windows created since the last check; only these can be intruders.
 local created = {}
 -- tabpage -> the window last focused outside any history/composer pair.
@@ -78,6 +80,12 @@ local function pair_member(win)
   return false
 end
 M.pair_member = pair_member
+
+-- Which window of the agent's pairs was entered last: "history" (the default) or
+-- "composer".
+function M.focused(agent)
+  return focused[agent] or "history"
+end
 
 -- The agent's composer window in a tab, the current one by default.
 function M.window(agent, tab)
@@ -510,7 +518,7 @@ end
 
 function M.dispose(agent)
   local tabs = attached[agent] or {}
-  attached[agent] = nil
+  attached[agent], focused[agent] = nil, nil
   for _, state in pairs(tabs) do
     if valid_win(state.win) and #tiled(api.nvim_win_get_tabpage(state.win)) > 1 then
       pcall(api.nvim_win_close, state.win, true)
@@ -581,6 +589,13 @@ api.nvim_create_autocmd("WinEnter", {
     local win = api.nvim_get_current_win()
     if not is_float(win) and not pair_member(win) and not sidebar().contains(win) then
       outside[api.nvim_get_current_tabpage()] = win
+    end
+    for _, item in ipairs(all()) do
+      if item[3].win == win then
+        focused[item[1]] = "composer"
+      elseif item[3].anchor == win then
+        focused[item[1]] = "history"
+      end
     end
     sidebar().entered(win)
     M.schedule_check()

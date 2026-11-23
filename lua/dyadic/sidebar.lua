@@ -173,12 +173,21 @@ local function open_main(tab)
   return win
 end
 
--- The main area's window: the one last used outside the sidebar and any history/composer
--- pair, else another such window, else a new split.
-function M.main_window(tab)
+-- The window last used outside the sidebar and any pair, if it is still one.
+function M.last_main(tab)
   tab = tab or api.nvim_get_current_tabpage()
   local win = main[tab]
   if valid_win(win) and api.nvim_win_get_tabpage(win) == tab and not dyadic_window(win) then
+    return win
+  end
+end
+
+-- The main area's window: the one last used outside the sidebar and any pair, else
+-- another such window, else a new split.
+function M.main_window(tab)
+  tab = tab or api.nvim_get_current_tabpage()
+  local win = M.last_main(tab)
+  if win then
     return win
   end
   for _, candidate in ipairs(api.nvim_tabpage_list_wins(tab)) do

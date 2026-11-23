@@ -145,26 +145,38 @@ function M.show(agent)
   return agent
 end
 
--- Hide or show the last agent: the sidebar of this tab, or its free pair.
+-- Inside this tab's pair, hide it and go back to the main area's window used last;
+-- elsewhere, show the pair of this tab's sidebar or of the last agent, and go into it.
 function M.toggle()
   local Composer, Sidebar = require("dyadic.composer"), require("dyadic.sidebar")
+  local current = vim.api.nvim_get_current_win()
   if config.placement == "sidebar" then
-    if Sidebar.window() then
-      if not Sidebar.close() then
-        vim.notify("Dyadic: the sidebar is the only window in this tab", vim.log.levels.WARN)
-      end
+    local win = Sidebar.window()
+    if not win then
+      return M.show()
+    end
+    if not Sidebar.contains(current) then
+      return M.show(require("dyadic.view").agent_of(vim.api.nvim_win_get_buf(win)))
+    end
+    local main = Sidebar.main_window()
+    if not Sidebar.close() then
+      vim.notify("Dyadic: the sidebar is the only window in this tab", vim.log.levels.WARN)
       return
     end
-    return M.show()
+    pcall(vim.api.nvim_set_current_win, main)
+    return
   end
   local agent = M.get() or last
   if not agent or agent.closed then
     return M.show()
   end
-  if not Composer.anchor(agent) then
+  if current ~= Composer.anchor(agent) and current ~= Composer.window(agent) then
     return M.show(agent)
   end
+  -- Looked up first: hiding enters the window the pair gives back.
+  local back = Sidebar.last_main()
   Composer.hide(agent)
+  pcall(vim.api.nvim_set_current_win, back or Sidebar.main_window())
 end
 
 function M.action(name)

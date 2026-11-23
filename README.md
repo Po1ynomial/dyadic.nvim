@@ -32,7 +32,7 @@ require('dyadic').setup({
 })
 ```
 
-Run `:Dyadic` to show an agent. Write in the composer, then press Enter in Normal mode to submit. `:Dyadic toggle` hides and shows the sidebar; `:Dyadic new` opens another agent, and `:Dyadic` with pi's arguments, such as `:Dyadic -c` or `:Dyadic -r`, opens one as `pi` would.
+Run `:Dyadic` to show an agent. Write in the composer, then press Enter in Normal mode to submit. `:Dyadic toggle` moves between your code and the agent: from your code it goes into the agent's windows, and from there it hides them. `:Dyadic new` opens another agent, and `:Dyadic` with pi's arguments, such as `:Dyadic -c` or `:Dyadic -r`, opens one as `pi` would.
 
 ## Documentation
 

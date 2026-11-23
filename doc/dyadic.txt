@@ -100,11 +100,11 @@ and |terminal| children, so an inherited value names an outer Neovim.
 ==============================================================================
 3. AGENTS                                                      *dyadic-agents*
 
-`:Dyadic` shows the agent you used last, or opens one. `:Dyadic new` opens
-another agent and pi process, and `:Dyadic -c`, `:Dyadic -r`, or any other
-pi arguments open one as `pi` would with them (|dyadic-pi-arguments|). An
-agent shows one pi session at a time;
-`/new` and `/resume` change the session without changing the agent.
+`:Dyadic` shows the agent you used last, or opens one, and goes into its
+windows (|dyadic-focus|). `:Dyadic new` opens another agent and pi process,
+and `:Dyadic -c`, `:Dyadic -r`, or any other pi arguments open one as `pi`
+would with them (|dyadic-pi-arguments|). An agent shows one pi session at a
+time; `/new` and `/resume` change the session without changing the agent.
 Pi runs a session in the directory it was created in, so the agent's
 working directory follows a resumed session; paths in the history and the
 composer resolve against it.
@@ -153,6 +153,14 @@ The pair stays together:
   With the sidebar, the window gets its buffer back and the sidebar shows
   the agent.
 
+                                                            *dyadic-focus*
+`:Dyadic` and `:Dyadic toggle` go into the pair at the window of it you used
+last, else the history, in Normal mode. From inside the pair, `:Dyadic
+toggle` hides it and goes back to the window you used last outside it, so
+one mapping moves between your code and the agent:
+>lua
+    vim.keymap.set("n", "<C-.>", "<Cmd>Dyadic toggle<CR>")
+<
                                                         *dyadic-own-windows*
 The sidebar, the composer, and dyadic's floats (the tree picker, the
 detail, the extension editor) show only their own buffers. They set
@@ -502,12 +510,15 @@ comes first.
 
                                                                      *:Dyadic*
 :Dyadic                 Show the last agent, or open one, with the
-                        configured placement, and focus its composer.
+                        configured placement, and go into its pair
+                        (|dyadic-focus|).
 :Dyadic new             Open another agent and pi process.
 :Dyadic {-pi-args}      Open another agent with pi arguments, such as
                         `-c`, `-r`, or `--model x` (|dyadic-pi-arguments|).
-:Dyadic toggle          Hide or show this tab's sidebar, or with the free
-                        placement, the last agent's pair in this tab.
+:Dyadic toggle          Inside this tab's pair, hide it and go back to
+                        the window used last. Elsewhere, show the pair of
+                        this tab's sidebar, or of the last agent with the
+                        free placement, and go into it.
 :Dyadic agents          Choose among live agents.
 :Dyadic composer        Focus the composer, opening it if needed.
 :Dyadic {action}        `submit`, `follow_up`, `dequeue`, `abort`, `close`.

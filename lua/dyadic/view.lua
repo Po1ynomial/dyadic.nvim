@@ -509,7 +509,9 @@ function M.show(agent)
       window_options(win)
     end
   end
-  Composer.attach(agent, anchor, true)
+  local win = Composer.attach(agent, anchor, false)
+  -- Back to the window of the pair used last, else the history.
+  api.nvim_set_current_win(Composer.focused(agent) == "composer" and win or anchor)
   M.render(agent)
 end
 
