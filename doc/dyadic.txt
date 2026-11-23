@@ -294,8 +294,11 @@ the start of a word that names an existing file or directory
 Markdown code stay plain text.
 
 The history window's bar shows the session title, with pi's working
-directory on the right. With `statusline` on, the statusline of both windows
-names the buffer and pi's session ID.
+directory on the right. When both do not fit the window, the directory's
+parents are cut to their first letter from the left (`~/p/n/dyadic.nvim`),
+then only its last part shows, then none of it, and then the title is cut.
+With `statusline` on, the statusline of both windows names the buffer and
+pi's session ID.
 
 ==============================================================================
 7. MAPPINGS                                                  *dyadic-mappings*

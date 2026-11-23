@@ -543,6 +543,15 @@ function M.new(agent)
       window_states[tonumber(ev.match)] = nil
     end,
   })
+  -- The history's winbar fits its window's width.
+  api.nvim_create_autocmd("WinResized", {
+    group = agent._view.group,
+    callback = function()
+      if not agent.closed then
+        statuslines(agent)
+      end
+    end,
+  })
   api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "TextChangedP" }, {
     group = agent._view.group,
     callback = function(ev)
@@ -752,10 +761,10 @@ end
 -- Window bars and statuslines of the agent's windows.
 statuslines = function(agent)
   local statusline = agent.config.statusline ~= false
-  local history_bar = Bars.history_winbar(agent)
   for _, win in ipairs(vim.fn.win_findbuf(agent.history_buf)) do
     if valid_win(win) then
-      set_option(win, "winbar", history_bar)
+      -- Fitted to each window's width.
+      set_option(win, "winbar", Bars.history_winbar(agent, api.nvim_win_get_width(win)))
       if statusline then
         set_option(win, "statusline", Bars.statusline(agent, "history"))
       end

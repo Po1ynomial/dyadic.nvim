@@ -41,10 +41,37 @@ end
 T("the history winbar shows the title and pi's working directory", function()
   local agent = H.open()
   local win = H.history_win(agent)
-  eq(plain(vim.wo[win].winbar), " %=%</work ")
+  eq(plain(vim.wo[win].winbar), " %=/work ")
   agent.state.sessionName = "Fix the CI"
   rerender(agent)
-  eq(plain(vim.wo[win].winbar), " Fix the CI%=%</work ")
+  eq(plain(vim.wo[win].winbar), " Fix the CI%=/work ")
+end)
+
+T("the history winbar shortens the directory, then drops it, then cuts the title", function()
+  local Bars = require("dyadic.bars")
+  local agent = H.open()
+  agent.cwd = vim.fn.expand("~") .. "/projects/nvim-plugins/dyadic.nvim"
+  agent.state.sessionName = "completion and hl"
+  local function bar(width)
+    return plain(Bars.history_winbar(agent, width))
+  end
+  -- One space at each end, at least two between.
+  eq(bar(56), " completion and hl%=~/projects/nvim-plugins/dyadic.nvim ")
+  eq(bar(55), " completion and hl%=~/p/nvim-plugins/dyadic.nvim ")
+  eq(bar(38), " completion and hl%=~/p/n/dyadic.nvim ")
+  eq(bar(37), " completion and hl%=dyadic.nvim ")
+  eq(bar(31), " completion and hl%= ")
+  eq(bar(10), " complet…%= ")
+  agent.cwd = "/srv/.config/app"
+  eq(bar(36), " completion and hl%=/s/.config/app ")
+  eq(bar(34), " completion and hl%=/s/.c/app ")
+  agent.state.sessionName = nil
+  eq(bar(12), " %=/s/.c/app ")
+  -- Fitted to each window, again when windows change size.
+  local win = H.history_win(agent)
+  vim.api.nvim_win_set_width(win, 12)
+  vim.api.nvim_exec_autocmds("WinResized", {})
+  eq(plain(vim.wo[win].winbar), " %=/s/.c/app ")
 end)
 
 T("the composer winbar shows the phase and queued messages", function()

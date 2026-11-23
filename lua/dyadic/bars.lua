@@ -32,11 +32,75 @@ function M.tokens(count)
   return string.format("%dM", math.floor(count / 1000000 + 0.5))
 end
 
-function M.history_winbar(agent)
+-- Not strdisplaywidth(), which counts the current window's 'linebreak' in.
+local width_of = vim.api.nvim_strwidth
+
+-- `value` cut to `width` display cells, ending in … when cut.
+local function cut(value, width)
+  if width_of(value) <= width then
+    return value
+  elseif width < 1 then
+    return ""
+  end
+  local out = ""
+  for index = 0, vim.fn.strchars(value) - 1 do
+    local next = out .. vim.fn.strcharpart(value, index, 1)
+    if width_of(next) > width - 1 then
+      break
+    end
+    out = next
+  end
+  return out .. "…"
+end
+
+-- Ever shorter forms of `path`: whole, then with its parent directories cut to their first
+-- letter from the left (~/p/nvim-plugins/x, ~/p/n/x), then its last part.
+local function shorter(path)
+  local forms = { path }
+  local parts = vim.split(path, "/", { plain = true })
+  for index = 1, #parts - 1 do
+    local part = parts[index]
+    if part ~= "" and part ~= "~" then
+      -- A dot directory keeps its dot and first letter, as in fish.
+      local keep = part:sub(1, 1) == "." and 2 or 1
+      local short = vim.fn.strcharpart(part, 0, keep)
+      if short ~= part then
+        parts[index] = short
+        forms[#forms + 1] = table.concat(parts, "/")
+      end
+    end
+  end
+  local last = parts[#parts]
+  if last ~= "" and last ~= forms[#forms] then
+    forms[#forms + 1] = last
+  end
+  return forms
+end
+
+-- Cells between the title and the working directory, at least.
+local GAP = 2
+
+-- The history's winbar for a window `width` cells wide: the title, with pi's working
+-- directory right-aligned. When both do not fit, the directory gets shorter, then goes,
+-- then the title is cut.
+function M.history_winbar(agent, width)
   local state = agent.state or {}
-  local title = agent.title or state.sessionName or ""
+  local title = one_line(agent.title or state.sessionName or "")
   local cwd = vim.fn.fnamemodify(agent.cwd or "", ":~")
-  return " " .. hl("DyadicTitle", title) .. "%=%<" .. hl("DyadicMeta", cwd) .. " "
+  -- One space at each end.
+  local room = (width or math.huge) - 2
+  local used = width_of(title)
+  local shown = ""
+  for _, form in ipairs(cwd ~= "" and shorter(cwd) or {}) do
+    if used + (used > 0 and GAP or 0) + width_of(form) <= room then
+      shown = form
+      break
+    end
+  end
+  if shown == "" then
+    title = cut(title, room)
+  end
+  return " " .. hl("DyadicTitle", title) .. "%=" .. hl("DyadicMeta", shown) .. " "
 end
 
 local THINKING = {
