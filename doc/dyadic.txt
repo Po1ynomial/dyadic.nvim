@@ -281,6 +281,13 @@ The composer holds the draft, the unsent text, plus status around it:
   hidden.
 - Extension widgets placed above the editor come before the draft.
 
+In the draft, what will mean something to pi or dyadic is highlighted: a
+command at the start of the draft that pi or dyadic runs (`DyadicCommand`),
+the `!` or `!!` of a shell command there (`DyadicShell`), and an `@path` at
+the start of a word that names an existing file or directory
+(`DyadicReference`). An unknown `/foo`, a missing path, and anything inside
+Markdown code stay plain text.
+
 The history window's bar shows the session title, with pi's working
 directory on the right. With `statusline` on, the statusline of both windows
 names the buffer and pi's session ID.
@@ -852,6 +859,9 @@ override them.
   DyadicReviewTitle       The review banner's title     Title
   DyadicReviewHint        The review banner             Comment
   DyadicReviewKey         Keys in the review banner     Special
+  DyadicCommand           A command the draft runs      Statement
+  DyadicShell             A shell command's ! or !!     PreProc
+  DyadicReference         An @path that exists          Underlined
 
 Changed words get their line's tint, stronger: `DyadicReviewAddText` has the
 background of `DyadicReviewAdd` moved twice as far from `Normal`'s, and the

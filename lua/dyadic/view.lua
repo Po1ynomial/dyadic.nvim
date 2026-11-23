@@ -91,6 +91,9 @@ local function define_highlights()
     DyadicReviewTitle = "Title",
     DyadicReviewHint = "Comment",
     DyadicReviewKey = "Special",
+    DyadicCommand = "Statement",
+    DyadicShell = "PreProc",
+    DyadicReference = "Underlined",
   }) do
     api.nvim_set_hl(0, name, { link = link, default = true })
   end
@@ -462,6 +465,10 @@ local function create_buffer(agent, ft, suffix, editable)
   if not editable then
     -- The history is only written by the renderer; keep no undo history for it.
     vim.bo[buf].undolevels = -1
+  end
+  if editable then
+    -- Draws the draft's commands, shell markers, and @paths.
+    require("dyadic.tokens")
   end
   if editable and agent.config.completion ~= false then
     require("dyadic.completion").attach(agent, buf)
