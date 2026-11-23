@@ -311,6 +311,16 @@ History:
   gF                `goto_file_line`     Same, at the line number
   <C-w>f            `split_file`         Same, in a split
   <localleader>i    `focus_composer`     Focus the composer
+  i                 `insert`             Insert in the composer's draft at
+                                       its cursor
+  a                 `append`             Same, after its cursor
+  I                 `insert_start`       Same, at the start of the draft
+  A                 `append_end`         Same, at the end of the draft
+  o                 `open_below`         Same, on a new line after it
+  O                 `open_above`         Same, on a new line before it
+
+The history is read-only, so these keys take the place of Vim's own. With
+an empty draft, each one just starts Insert mode.
 
 Actions without a default key: `thinking`, `cycle_model`, `copy`, `new`,
 `resume`, `tree`, `fork`. Every action has a buffer-local <Plug> mapping

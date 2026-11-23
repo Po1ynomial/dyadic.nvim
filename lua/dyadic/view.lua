@@ -192,6 +192,12 @@ local actions = {
   goto_file = { "GotoFile", "gf", "history" },
   goto_file_line = { "GotoFileLine", "gF", "history" },
   split_file = { "SplitFile", "<C-w>f", "history" },
+  insert = { "Insert", "i", "history" },
+  append = { "Append", "a", "history" },
+  insert_start = { "InsertStart", "I", "history" },
+  append_end = { "AppendEnd", "A", "history" },
+  open_below = { "OpenBelow", "o", "history" },
+  open_above = { "OpenAbove", "O", "history" },
 }
 M.actions = actions
 
@@ -203,6 +209,21 @@ local history_actions = {
   goto_file = true,
   goto_file_line = true,
   split_file = true,
+  insert = true,
+  append = true,
+  insert_start = true,
+  append_end = true,
+  open_below = true,
+  open_above = true,
+}
+-- Insert keys of the history -> where Insert mode starts in the draft.
+local compose_actions = {
+  insert = "cursor",
+  append = "after",
+  insert_start = "start",
+  append_end = "end",
+  open_below = "below",
+  open_above = "above",
 }
 -- File actions -> { native key, Sidebar.open_file mode }.
 local file_actions =
@@ -240,6 +261,40 @@ function M.focus(agent, composer)
     statuslines(agent)
   else
     api.nvim_set_current_win(win)
+  end
+end
+
+-- Go from the history into its composer in Insert mode: at the draft's cursor, after it,
+-- at its start or end, or on a new line below or above it. An empty draft just starts.
+local function compose(agent, where)
+  M.focus(agent, true)
+  local win = Composer.window(agent)
+  if not win or api.nvim_get_current_win() ~= win then
+    return
+  end
+  local buf = agent.composer_buf
+  local count = api.nvim_buf_line_count(buf)
+  local empty = count == 1 and api.nvim_buf_get_lines(buf, 0, 1, false)[1] == ""
+  -- Keys are inserted ahead of typeahead, so they run before what is typed next.
+  local function feed(key)
+    api.nvim_feedkeys(key, "ni", false)
+  end
+  if empty or where == "cursor" then
+    vim.cmd.startinsert()
+  elseif where == "after" then
+    feed("a")
+  elseif where == "start" then
+    api.nvim_win_set_cursor(win, { 1, 0 })
+    vim.cmd.startinsert()
+  elseif where == "end" then
+    api.nvim_win_set_cursor(win, { count, 0 })
+    vim.cmd.startinsert({ bang = true })
+  elseif where == "below" then
+    api.nvim_win_set_cursor(win, { count, 0 })
+    feed("o")
+  else
+    api.nvim_win_set_cursor(win, { 1, 0 })
+    feed("O")
   end
 end
 
@@ -315,6 +370,10 @@ end
 
 -- Cursor-dependent actions in the history. Off a matching row, fall back to native keys.
 function M.action(agent, name)
+  if compose_actions[name] then
+    compose(agent, compose_actions[name])
+    return
+  end
   if name == "next_message" or name == "prev_message" then
     jump_message(agent, name == "next_message")
     return

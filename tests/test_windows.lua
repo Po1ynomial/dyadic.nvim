@@ -124,6 +124,31 @@ T("a moved-out window goes beside another window outside the pair", function()
   ok(col(anchor) < col(new) and col(new) < col(other), vim.inspect(vim.fn.winlayout()))
 end)
 
+T("insert keys in the history go into the composer's draft", function()
+  local agent = H.open(nil, { placement = "free" })
+  local cases = {
+    { "i", { 1, 1 }, "oXne\ntwo" },
+    { "a", { 1, 1 }, "onXe\ntwo" },
+    { "I", { 2, 1 }, "Xone\ntwo" },
+    { "A", { 1, 0 }, "one\ntwoX" },
+    { "o", { 1, 0 }, "one\ntwo\nX" },
+    { "O", { 2, 0 }, "X\none\ntwo" },
+  }
+  for _, case in ipairs(cases) do
+    agent:set_draft("one\ntwo")
+    api.nvim_win_set_cursor(Composer.window(agent), case[2])
+    api.nvim_set_current_win(Composer.anchor(agent))
+    H.keys(case[1] .. "X")
+    eq(agent:get_draft(), case[3], case[1])
+    eq(api.nvim_get_current_win(), Composer.window(agent), case[1])
+  end
+  -- An empty draft just starts.
+  agent:set_draft("")
+  api.nvim_set_current_win(Composer.anchor(agent))
+  H.keys("oX")
+  eq(agent:get_draft(), "X")
+end)
+
 T("the composer refuses other buffers", function()
   H.open()
   local ok_edit, err = pcall(vim.cmd.edit, vim.fn.tempname())
