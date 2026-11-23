@@ -223,7 +223,8 @@ end
 function M.complete(prefix)
   local items = { "new", "toggle", "agents", "composer", "abort", "close", "submit", "follow_up", "dequeue", "review" }
   vim.list_extend(items, require("dyadic.commands").names)
-  local result, seen = {}, {}
+  -- `close` already ends the agent.
+  local result, seen = {}, { quit = true }
   for _, item in ipairs(items) do
     if not seen[item] and item:sub(1, #prefix) == prefix then
       result[#result + 1] = item

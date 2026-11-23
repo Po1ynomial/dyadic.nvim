@@ -7,6 +7,9 @@ T("completes slash commands at the line start", function()
   local agent = H.open({ commands = { { name = "skill:review", source = "skill" } } })
   eq(Commands.complete(agent, "/re"), { "/reload", "/resume" })
   eq(Commands.complete(agent, "/sk"), { "/skill:review" })
+  -- Only pi's names: no /stats, and :Dyadic has `close` instead of `quit`.
+  eq(Commands.complete(agent, "/s"), { "/session", "/settings", "/skill:review" })
+  eq(require("dyadic").complete("q"), {})
 end)
 
 T("omnifunc completes absolute paths after the line start", function()

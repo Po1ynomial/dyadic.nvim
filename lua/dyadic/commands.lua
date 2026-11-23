@@ -10,7 +10,6 @@ M.names = {
   "resume",
   "name",
   "session",
-  "stats",
   "compact",
   "tree",
   "fork",
@@ -426,7 +425,7 @@ local function configure(agent, argument, original)
   end
 end
 
-local function stats(agent, original)
+local function session(agent, original)
   request(agent, "get_session_stats", {}, original, function(data)
     agent.stats = data
     local state = agent.state or {}
@@ -579,8 +578,8 @@ function M.run(agent, text)
     else
       change(agent, "set_session_name", { name = argument }, text)
     end
-  elseif name == "session" or name == "stats" then
-    stats(agent, text)
+  elseif name == "session" then
+    session(agent, text)
   elseif name == "compact" then
     change(agent, "compact", argument ~= "" and { customInstructions = argument } or {}, text)
   elseif name == "copy" then

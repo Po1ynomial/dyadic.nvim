@@ -341,7 +341,7 @@ Type these in the composer and submit:
   `/resume [session-file or all]`      Pick a saved session; `all` includes
                                      other working directories
   `/name [name]`                       Set or show the session name
-  `/session`, `/stats`                   Show identity, file, usage, context
+  `/session`                           Show identity, file, usage, context
   `/compact [instructions]`            Compact through pi
   `/tree`                              Move within the session tree with
                                      the tree picker (bridge, see
@@ -453,8 +453,9 @@ time. dyadic keeps no database of its own.
                         this agent.
 :Dyadic review {accept|reject} [all]
                         Decide the hunk at the cursor, or all of them.
-:Dyadic {command}       Any pi command name from |dyadic-pi-commands|, such
-                        as `model` or `resume`, without touching the draft.
+:Dyadic {command}       Any pi command name from |dyadic-pi-commands| but
+                        `quit`, such as `model` or `resume`, without
+                        touching the draft.
                         Other names, including extension commands, are an
                         error; type those in the composer.
 
