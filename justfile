@@ -9,6 +9,10 @@ test *files:
 test-real-pi:
     DYADIC_REAL_PI=1 {{nvim}} --clean --headless -l tests/run.lua tests/test_real_pi.lua
 
+# Run a reviewed edit and change notes against the real pi and its default model (model calls)
+test-real-model:
+    DYADIC_REAL_MODEL=1 DYADIC_CASE_TIMEOUT_MS=600000 {{nvim}} --clean --headless -l tests/run.lua tests/test_real_model.lua
+
 # Type-check the bridge against the installed pi's declarations (needs deno)
 check-ts:
     bash tests/pi-env.sh check

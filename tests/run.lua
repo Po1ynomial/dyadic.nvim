@@ -7,7 +7,7 @@ local root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
 local args = _G.arg or {}
 local SKIP = 77
 local JOBS = 8
-local CASE_TIMEOUT_MS = 30000
+local CASE_TIMEOUT_MS = tonumber(vim.env.DYADIC_CASE_TIMEOUT_MS) or 30000
 
 vim.opt.runtimepath:prepend(root)
 
