@@ -424,11 +424,11 @@ local function outsiders()
   return result
 end
 
--- The current tab's windows and their sizes at the end of the last check.
+-- The current tab's ordinary windows and their sizes at the end of the last check.
 local sizes
 
 local function snapshot()
-  sizes = { tab = api.nvim_get_current_tabpage(), wins = api.nvim_tabpage_list_wins(0), cmd = vim.fn.winrestcmd() }
+  sizes = { tab = api.nvim_get_current_tabpage(), wins = tiled(0), cmd = vim.fn.winrestcmd() }
 end
 
 -- A split of a pair's window is undone, and the cursor goes back to the window split.
@@ -441,7 +441,7 @@ local function undo_splits()
     if created[win] then
       local buf, tab = api.nvim_win_get_buf(win), api.nvim_win_get_tabpage(win)
       local current = api.nvim_get_current_win() == win
-      created[win] = nil
+      -- Kept in `created`, so the sidebar knows its width changed from a split.
       pcall(api.nvim_win_close, win, true)
       undone = true
       local state = state_of(item[2], tab)
@@ -453,12 +453,7 @@ local function undo_splits()
       end
     end
   end
-  if
-    undone
-    and sizes
-    and sizes.tab == api.nvim_get_current_tabpage()
-    and vim.deep_equal(sizes.wins, api.nvim_tabpage_list_wins(0))
-  then
+  if undone and sizes and sizes.tab == api.nvim_get_current_tabpage() and vim.deep_equal(sizes.wins, tiled(0)) then
     vim.cmd(sizes.cmd)
   end
 end
