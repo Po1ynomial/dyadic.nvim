@@ -478,8 +478,11 @@ Keys in the list:
 Change or disable them with `sessions.keys`, as with `tree.keys`.
 
 Typing in the search bar filters at once on names, first messages, IDs, and
-directories; every word must match. With a search, the threaded sort lists
-by relevance, as in pi: matches in the name first. Delete moves the file to
+directories; every word must match. After a pause, dyadic also searches the
+message text of the other sessions in the background, with `searching` in
+the title, and adds those that match. With a search, the threaded sort lists
+by relevance, as in pi: matches in the name first, matches only in the
+message text last. Delete moves the file to
 the trash with the `trash` command when there is one, else deletes it, and
 refuses a session a live agent shows.
 

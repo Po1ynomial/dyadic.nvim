@@ -322,15 +322,51 @@ local function version_of(path)
   return stat and table.concat({ stat.size, stat.mtime.sec, stat.mtime.nsec }, ":")
 end
 
--- Load the details of `paths` in worker threads. `on_item(details)` runs on the main loop
--- for each session, at once for cached ones; `on_done()` runs after the last. Returns a
--- handle whose :cancel() stops loading files not started yet.
-function M.load(paths, on_item, on_done)
+-- Run `fn(path, argument)` in worker threads for each of `paths`, a few at a time;
+-- `argument` may be a function of the path.
+-- `on_result(path, result)` runs on the main loop for each, `on_done()` after the last.
+-- Returns a handle whose :cancel() skips the files not started yet.
+local function pool(fn, paths, argument, on_result, on_done)
   local handle = { cancelled = false }
   function handle:cancel()
     self.cancelled = true
   end
-  local queue = {}
+  local next_index, running = 1, 0
+  local function finished()
+    if running == 0 and (next_index > #paths or handle.cancelled) and not handle.done then
+      handle.done = true
+      if on_done then
+        on_done()
+      end
+    end
+  end
+  local start
+  -- The after callback runs in a fast event, where most of the API is off limits.
+  local work = uv.new_work(fn, function(path, result)
+    vim.schedule(function()
+      running = running - 1
+      on_result(path, result, handle.cancelled)
+      start()
+      finished()
+    end)
+  end)
+  start = function()
+    while not handle.cancelled and running < THREADS and next_index <= #paths do
+      local path = paths[next_index]
+      next_index, running = next_index + 1, running + 1
+      work:queue(path, type(argument) == "function" and argument(path) or argument)
+    end
+  end
+  start()
+  finished()
+  return handle
+end
+
+-- Load the details of `paths` in worker threads. `on_item(details)` runs on the main loop
+-- for each session, at once for cached ones; `on_done()` runs after the last. Returns a
+-- handle whose :cancel() stops loading files not started yet.
+function M.load(paths, on_item, on_done)
+  local queue, versions = {}, {}
   for _, path in ipairs(paths) do
     local version = version_of(path)
     local hit = details_cache[path]
@@ -339,49 +375,119 @@ function M.load(paths, on_item, on_done)
         on_item(hit.details)
       end
     elseif version then
-      queue[#queue + 1] = { path = path, version = version }
+      queue[#queue + 1], versions[path] = path, version
     end
   end
-  local next_index, running, versions = 1, 0, {}
-  local function finished()
-    if running == 0 and (next_index > #queue or handle.cancelled) and not handle.done then
-      handle.done = true
-      if on_done then
-        on_done()
-      end
-    end
-  end
-  local start
-  local function after(path, result)
-    running = running - 1
+  return pool(read_details, queue, TEXT_CHARS, function(path, result, cancelled)
     local details = result ~= "" and vim.json.decode(result) or false
     if details then
       details.modified = tonumber(details.modified) or 0
     end
     details_cache[path] = { version = versions[path], details = details }
-    if details and not handle.cancelled then
+    if details and not cancelled then
       on_item(details)
     end
-    start()
-    finished()
+  end, on_done)
+end
+
+-- Whether every word in `joined` (lowercase, separated by spaces) appears in the text of
+-- the session's user and assistant messages. Runs in a worker thread like read_details.
+local function has_words(path, joined)
+  local uv, json = vim.uv, vim.json
+  local missing = {}
+  for word in joined:gmatch("%S+") do
+    missing[word] = true
   end
-  -- The after callback runs in a fast event, where most of the API is off limits.
-  local work = uv.new_work(read_details, function(path, result)
-    vim.schedule(function()
-      after(path, result)
-    end)
-  end)
-  start = function()
-    while not handle.cancelled and running < THREADS and next_index <= #queue do
-      local item = queue[next_index]
-      next_index, running = next_index + 1, running + 1
-      versions[item.path] = item.version
-      work:queue(item.path, TEXT_CHARS)
+  local fd = uv.fs_open(path, "r", 438)
+  if not fd then
+    return path, ""
+  end
+  local function check(line)
+    local kind = line:match('^{"type":"([%w_]+)"')
+    if kind and kind ~= "message" then
+      return
+    end
+    local lower = line:lower()
+    local any = false
+    for word in pairs(missing) do
+      any = any or lower:find(word, 1, true) ~= nil
+    end
+    if not any then
+      return
+    end
+    local ok, entry = pcall(json.decode, line, { luanil = { object = true, array = true } })
+    local message = ok and type(entry) == "table" and entry.type == "message" and entry.message
+    if type(message) ~= "table" or (message.role ~= "user" and message.role ~= "assistant") then
+      return
+    end
+    local content, parts = message.content, {}
+    if type(content) == "string" then
+      parts[1] = content
+    else
+      for _, block in ipairs(type(content) == "table" and content or {}) do
+        if type(block) == "table" and block.type == "text" and type(block.text) == "string" then
+          parts[#parts + 1] = block.text
+        end
+      end
+    end
+    local text = table.concat(parts, " "):lower()
+    for word in pairs(missing) do
+      if text:find(word, 1, true) then
+        missing[word] = nil
+      end
     end
   end
-  start()
-  finished()
-  return handle
+  local pending, offset = "", 0
+  while next(missing) do
+    local chunk = uv.fs_read(fd, 262144, offset)
+    if not chunk or chunk == "" then
+      break
+    end
+    offset = offset + #chunk
+    local start = 1
+    while next(missing) do
+      local stop = chunk:find("\n", start, true)
+      if not stop then
+        pending = pending .. chunk:sub(start)
+        break
+      end
+      check(pending .. chunk:sub(start, stop - 1))
+      pending, start = "", stop + 1
+    end
+  end
+  if next(missing) and pending ~= "" then
+    check(pending)
+  end
+  uv.fs_close(fd)
+  return path, next(missing) == nil and "1" or ""
+end
+
+-- Search the message text of `paths` in worker threads. `words(path)` gives the words a
+-- session's text must all have. `on_match(path)` runs for each session that has them,
+-- `on_done()` after the last, and `on_progress(searched)` after each file. Returns a
+-- handle with :cancel().
+function M.search(paths, words, on_match, on_done, on_progress)
+  local searched = 0
+  local function joined(path)
+    return table.concat(
+      vim.tbl_map(function(word)
+        return word:lower()
+      end, words(path)),
+      " "
+    )
+  end
+  return pool(has_words, paths, joined, function(path, result, cancelled)
+    searched = searched + 1
+    if cancelled then
+      return
+    end
+    if result == "1" then
+      on_match(path)
+    end
+    if on_progress then
+      on_progress(searched)
+    end
+  end, on_done)
 end
 
 return M

@@ -98,24 +98,35 @@ local function norm(path, cwd)
   return Sessions.resolve(path, cwd)
 end
 
--- Words of the search; every one must match. Returns a score, lower is better: a word in
--- the name counts 0, in the first message, ID, or directory 1. Nil when a word misses.
+-- How well `details` match the search `words`, every one of which must match. Returns a
+-- score, lower is better: a word in the name counts 0, in the first message, ID, or
+-- directory 1, and in the message text, found by the background search, 2. Also returns
+-- the words the details lack.
 local function score(p, details, words)
   local name = (details.name or ""):lower()
   local text = table.concat({ details.first or "", details.id or "", details.cwd or "" }, " "):lower()
-  local total = 0
+  local total, missing = 0, {}
   for _, word in ipairs(words) do
     if name:find(word, 1, true) then
       total = total + 0
     elseif text:find(word, 1, true) then
       total = total + 1
-    elseif p.text_matches and p.text_matches[details.path] then
-      total = total + 2
     else
-      return nil
+      total, missing[#missing + 1] = total + 2, word
     end
   end
-  return total
+  if #missing > 0 and not (p.text_matches and p.text_matches[details.path]) then
+    return nil, missing
+  end
+  return total, missing
+end
+
+local function words_of(query)
+  local words = {}
+  for word in query:lower():gmatch("%S+") do
+    words[#words + 1] = word
+  end
+  return words
 end
 
 local function newest_first(a, b)
@@ -180,10 +191,7 @@ local function visible(p)
       list[#list + 1] = details
     end
   end
-  local words = {}
-  for word in p.query:lower():gmatch("%S+") do
-    words[#words + 1] = word
-  end
+  local words = words_of(p.query)
   if #words == 0 then
     table.sort(list, newest_first)
     return list, p.sort == "threaded"
@@ -519,8 +527,61 @@ local function render(p, key)
   preview(p)
 end
 
+-- Wait this long after typing stops before searching message text.
+M.SEARCH_DELAY = 300
+
+local render_soon
+
+-- Search the message text of the sessions the details do not match, in the background,
+-- and add those that match. A new search, or a change of scope, replaces the last.
+local function search_text(p)
+  if p.search then
+    p.search:cancel()
+  end
+  p.search, p.searching, p.text_matches = nil, nil, {}
+  p.search_token = (p.search_token or 0) + 1
+  local token, words = p.search_token, words_of(p.query)
+  if #words == 0 then
+    return
+  end
+  vim.defer_fn(function()
+    local state = p.scopes[p.scope]
+    if p.closed or token ~= p.search_token or not state then
+      return
+    end
+    local paths, missing = {}, {}
+    for path, details in pairs(state.items) do
+      local value, lacking = score(p, details, words)
+      if not value then
+        paths[#paths + 1], missing[path] = path, lacking
+      end
+    end
+    if #paths == 0 then
+      return
+    end
+    p.searching = { done = 0, total = #paths }
+    Picker.update_title(p)
+    p.search = Sessions.search(paths, function(path)
+      return missing[path]
+    end, function(path)
+      p.text_matches[path] = true
+      render_soon(p)
+    end, function()
+      if token == p.search_token then
+        p.searching = nil
+        render_soon(p)
+      end
+    end, function(searched)
+      if token == p.search_token and p.searching and not p.closed then
+        p.searching.done = searched
+        Picker.update_title(p)
+      end
+    end)
+  end, M.SEARCH_DELAY)
+end
+
 -- Render at most every 100 ms while details arrive.
-local function render_soon(p)
+render_soon = function(p)
   if p.render_pending then
     return
   end
@@ -559,6 +620,10 @@ local function load(p, scope)
       end
       if p.scope == scope then
         render_soon(p)
+        -- Sessions that arrived after a search started are searched too.
+        if p.query:find("%S") then
+          search_text(p)
+        end
       end
       -- All loads after this directory, so <Tab> finds it ready.
       if scope == "current" then
@@ -736,6 +801,7 @@ function M.set_scope(p, scope)
   p.scope = scope
   load(p, scope)
   render(p)
+  search_text(p)
 end
 
 -- Open the picker. `opts`:
@@ -793,10 +859,9 @@ function M.open(opts)
     bar_keys = bar_keys,
     preview = true,
     on_query = function(p)
-      render(p)
-      if p.on_query then
-        p.on_query(p)
-      end
+      search_text(p)
+      -- A new search selects its best match, the first row.
+      render(p, "")
     end,
     on_move = preview,
     on_resize = function(p)
@@ -807,6 +872,9 @@ function M.open(opts)
     on_close = function(p)
       for _, state in pairs(p.scopes) do
         state.handle:cancel()
+      end
+      if p.search then
+        p.search:cancel()
       end
     end,
     foldtext = function(p, line)

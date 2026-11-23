@@ -122,6 +122,26 @@ T("sorts, filters named sessions, and searches", function()
   eq(#H.picker_lines(p), 3)
 end)
 
+T("a pause in typing searches the message text in the background", function()
+  local dir = sessions({
+    { id = "a", prompt = "start", reply = "the Flux capacitor works", age = 10 },
+    { id = "b", prompt = "flux in the first message", age = 20 },
+    { id = "c", prompt = "nothing here", reply = "capacitor only", age = 30 },
+    { id = "d", prompt = "other", name = "flux named", reply = "a capacitor", age = 40 },
+  })
+  local p = open(dir)
+  require("dyadic.picker").set_query(p, "flux capacitor")
+  -- At once only the details match: none has both words.
+  eq(#p.rows, 0)
+  H.wait(function()
+    return p.searching == nil and not p.render_pending and #p.rows > 0
+  end, 3000, "the text search")
+  -- A name match ranks first; words may be split between the name and the text.
+  eq(H.picker_lines(p), { "flux named  2  now", "start  2  now" })
+  require("dyadic.picker").set_query(p, "")
+  eq(#H.picker_lines(p), 4)
+end)
+
 T("the preview shows the session under the cursor", function()
   local dir, paths = sessions({
     { id = "s1", prompt = "first   prompt", reply = "the reply", name = "my session", age = 120 },
