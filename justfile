@@ -20,3 +20,7 @@ test-ts:
 # Format Lua sources
 fmt:
     stylua lua plugin tests
+
+# Try reviews by hand against the fake pi; pass --clean to skip your config
+demo-review *args:
+    {{nvim}} {{args}} -c "luafile scripts/review_demo.lua"

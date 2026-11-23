@@ -44,6 +44,10 @@ local function define_highlights()
     DyadicReviewAdd = "DiffAdd",
     DyadicReviewDelete = "DiffDelete",
     DyadicReviewHint = "Comment",
+    DyadicReviewKey = "Special",
+    -- DiffTextAdd is new in Neovim 0.12.
+    DyadicReviewAddText = vim.fn.hlexists("DiffTextAdd") == 1 and "DiffTextAdd" or "DiffText",
+    DyadicReviewDeleteText = "DiffText",
   }) do
     api.nvim_set_hl(0, name, { link = link, default = true })
   end

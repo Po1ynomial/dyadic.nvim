@@ -47,6 +47,7 @@ just test-real-pi                  # smoke test against the real pi, still witho
 just check-ts                      # type-check the bridge against the installed pi (needs deno)
 just test-ts                       # the bridge's tools against pi's own definitions (needs deno)
 just fmt                           # stylua
+just demo-review                   # try reviews by hand against the fake pi (--clean: without your config)
 ```
 
 Set `DYADIC_NVIM` to test with another Neovim binary.

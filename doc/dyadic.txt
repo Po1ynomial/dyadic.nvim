@@ -501,13 +501,20 @@ Review                                                        *dyadic-review*
 
 With review on for a file, an agent's `edit` or `write` opens the file in a
 listed buffer if needed, without changing any window, and applies the change
-there as ordinary edits. Each hunk is highlighted, removed lines show above
-it, and the tool call waits until you have decided every hunk. Reviewed
+there as ordinary edits. Each hunk's added lines are highlighted, with the
+changed words stronger, and its removed lines show above them, wrapped like
+the window wraps text. The tool call waits until you have decided every
+hunk. Reviewed
 changes are never saved; save when you are ready. Commands that read from
 disk, such as tests, do not see them until then, and the model knows this.
 
 The composer's bar shows `review: N hunks` while hunks are undecided, and
-`:Dyadic review` shows the next one. In the reviewed buffer:
+`:Dyadic review` shows the next one. The keys act on the hunk at the cursor:
+the cursor is on one of its added lines, or, for a hunk that only removes
+lines, on the line below them (the last line when they were at the end).
+That hunk shows a banner with its number and the keys; elsewhere the keys
+change nothing and say so. After a decision the cursor moves to the next
+undecided hunk. In the reviewed buffer:
 
   Key   Name            Action ~
   ]c    `next`            Next undecided hunk
@@ -526,6 +533,23 @@ hunks you rejected and why, and whether you also edited the file. Rejecting
 all of a new file's content leaves no buffer behind; windows that showed it
 stay and show the file shown before. When the run is aborted during a
 review, accepted hunks stay and the rest are reverted.
+
+Undo and redo                                            *dyadic-review-undo*
+The agent's change is one undo step, and so is each decision, accepts
+included. A hunk's state follows what its lines show, however they got
+there:
+- the agent's lines: undecided, or accepted if its accept was not undone;
+- its old lines: rejected, so retyping the old text rejects it too;
+- anything else: your edit, which accepts the hunk unless you rejected it
+  before editing.
+So |u| after a decision reopens the hunk and |CTRL-R| makes the decision
+again, the reason included; |u| after an edit inside a hunk reopens it.
+Undoing the agent's change itself ends the review: the model is told you
+undid it, and |CTRL-R| no longer brings it back (|:undo| and |g+| still
+can). Once a review has ended, undo is ordinary editing and the model is
+not told; |u| steps back through your decisions first (undoing an accept
+only moves the cursor), then undoes the change. Closing the buffer during
+a review drops the change, and the model is told so.
 
 One review per buffer runs at a time; another agent's change to the same
 buffer waits, and fails when the buffer changed meanwhile, so the model
@@ -630,6 +654,10 @@ override them.
   DyadicTreeLabel         Labels in the tree picker     DiagnosticWarn
   DyadicReviewAdd         Lines a reviewed change adds  DiffAdd
   DyadicReviewDelete      Lines it removes              DiffDelete
-  DyadicReviewHint        Hunk numbers and keys         Comment
+  DyadicReviewAddText     Changed words in added lines  DiffTextAdd
+                          (DiffText before Neovim 0.12)
+  DyadicReviewDeleteText  Changed words in removed ones DiffText
+  DyadicReviewHint        The review banner             Comment
+  DyadicReviewKey         Keys in the review banner     Special
 
  vim:tw=78:ts=8:ft=help:norl:

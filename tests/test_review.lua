@@ -297,4 +297,299 @@ T("the user's own buffer-local mapping comes back after the review", function()
   eq(vim.fn.maparg("ga", "n"), "<Cmd>let g:mine = 1<CR>")
 end)
 
+-- Undo and redo. The file has two hunks: line 3 and line 5.
+local OLD = { "local M = {}", "function M.greet(name)", '  print("hello " .. name)', "end", "return M" }
+local NEW3, NEW5 = '  print(("hello %s"):format(name))', "return setmetatable(M, {})"
+
+-- The review of the two hunks, shown in the main area; returns the agent, log, request
+-- id, buffer, and path.
+local function two_hunks()
+  local agent, log = open()
+  local path = file(OLD)
+  local new = vim.deepcopy(OLD)
+  new[3], new[5] = NEW3, NEW5
+  local _, id = propose(agent, log, path, table.concat(new, "\n") .. "\n")
+  local buf = require("dyadic.files").buffer(path)
+  show(buf)
+  return agent, log, id, buf, path
+end
+
+local function states(buf)
+  return vim.tbl_map(function(hunk)
+    return hunk.state
+  end, Review.get(buf).hunks)
+end
+
+-- Run keys as typed, at `line` when given, and let the review catch up.
+local function press(keys, line)
+  if line then
+    api.nvim_win_set_cursor(0, { line, 0 })
+  end
+  H.keys(keys)
+  -- Neovim's main loop fires CursorMoved after a key; feedkeys in a test does not.
+  api.nvim_exec_autocmds("CursorMoved", { buffer = api.nvim_get_current_buf() })
+  H.settle()
+end
+
+local function reason(text)
+  vim.ui.input = function(_, on_confirm)
+    on_confirm(text)
+  end
+end
+
+-- Rows with a review highlight on the added lines.
+local function marked(buf)
+  local rows = {}
+  local ns = api.nvim_get_namespaces().dyadic_review
+  for _, mark in ipairs(api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })) do
+    if mark[4].line_hl_group then
+      rows[#rows + 1] = mark[2] + 1
+    end
+  end
+  return rows
+end
+
+-- The review's virtual lines by row: { row = { text of each virtual line } }, and any
+-- end-of-line text.
+local function virtual(buf)
+  local rows, eol = {}, {}
+  local ns = api.nvim_get_namespaces().dyadic_review
+  for _, mark in ipairs(api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })) do
+    local details = mark[4]
+    for _, line in ipairs(details.virt_lines or {}) do
+      rows[mark[2] + 1] = rows[mark[2] + 1] or {}
+      table.insert(
+        rows[mark[2] + 1],
+        vim.trim(table.concat(vim.tbl_map(function(chunk)
+          return chunk[1]
+        end, line)))
+      )
+    end
+    if details.virt_text then
+      eol[#eol + 1] = mark[2] + 1
+    end
+  end
+  return rows, eol
+end
+
+T("the banner shows on the hunk at the cursor only, and no hunk has end-of-line text", function()
+  local _, _, _, buf = two_hunks()
+  press("3G")
+  local rows, eol = virtual(buf)
+  eq(eol, {})
+  -- The banner wraps in the narrow test window; the removed line follows it.
+  eq(rows[3][#rows[3]], vim.trim(OLD[3]))
+  eq(
+    table.concat(vim.list_slice(rows[3], 1, #rows[3] - 1), " · "),
+    "hunk 1/2 · ga accept · gs reject · gS reject with reason · gA accept all · ]c [c move"
+  )
+  eq(rows[5], { OLD[5] })
+  press("4G")
+  rows = virtual(buf)
+  eq(rows[3], { vim.trim(OLD[3]) })
+  press("]c")
+  eq(api.nvim_win_get_cursor(0)[1], 5)
+  eq(virtual(buf)[5][1]:sub(1, 8), "hunk 2/2")
+end)
+
+T("keys away from a hunk change nothing and say how to reach one", function()
+  local _, log, id, buf = two_hunks()
+  _G.notes = {}
+  press("ga", 1)
+  press("gs", 4)
+  eq(states(buf), { "pending", "pending" })
+  eq(lines(buf)[5], NEW5)
+  eq(H.bridge_answer(log, id), nil)
+  eq(_G.notes[#_G.notes].msg, "Dyadic: No hunk at the cursor; ]c and [c move to one")
+end)
+
+T("changed words are highlighted in the added and the removed line", function()
+  local _, _, _, buf = two_hunks()
+  press("", 3)
+  local ns = api.nvim_get_namespaces().dyadic_review
+  local added = {}
+  for _, mark in ipairs(api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })) do
+    if mark[4].hl_group == "DyadicReviewAddText" then
+      added[#added + 1] = NEW3:sub(mark[3] + 1, mark[4].end_col)
+    end
+  end
+  eq(added, { "(", "%s", "):format(", ")" })
+  local removed = {}
+  for _, mark in ipairs(api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })) do
+    for _, line in ipairs(mark[4].virt_lines or {}) do
+      for _, chunk in ipairs(line) do
+        if chunk[2] == "DyadicReviewDeleteText" then
+          removed[#removed + 1] = chunk[1]
+        end
+      end
+    end
+  end
+  eq(removed, { " .. " })
+end)
+
+T("a removal is picked from the line below it, or the last line at the end", function()
+  local agent, log = open()
+  local path = file({ "head", "a", "b", "middle", "c", "tail" })
+  local _, id = propose(agent, log, path, "a\nb\nc\n")
+  local buf = require("dyadic.files").buffer(path)
+  show(buf)
+  eq(lines(buf), { "a", "b", "c" })
+  local rows = virtual(buf)
+  eq(rows[1], { "head" })
+  eq(rows[3], { "middle", "tail" })
+  press("gs", 3)
+  eq(lines(buf), { "a", "b", "middle", "c" })
+  eq(states(buf), { "pending", "rejected", "pending" })
+  press("gs", 4)
+  eq(lines(buf), { "a", "b", "middle", "c", "tail" })
+  press("ga", 1)
+  ok(answer(log, id).text:find("accepted 1 of 3", 1, true))
+end)
+
+T("removed lines are laid out like the window shows text", function()
+  local view = { width = 10, wrap = true, linebreak = false, breakat = { [" "] = true }, tabstop = 4 }
+  local function rows(chunks)
+    return vim.tbl_map(function(line)
+      return table.concat(vim.tbl_map(function(chunk)
+        return chunk[1]
+      end, line))
+    end, Review._layout(chunks, view, "Fill"))
+  end
+  eq(rows({ { "\tab", "Del" } }), { "    ab    " })
+  eq(rows({ { "aaaa bbbb cccc", "Del" } }), { "aaaa bbbb ", "cccc      " })
+  eq(rows({ { "aaaaaa bbbbbb", "Del" } }), { "aaaaaa bbb", "bbb       " })
+  view.linebreak = true
+  eq(rows({ { "aaaaaa bbbbbb", "Del" } }), { "aaaaaa    ", "bbbbbb    " })
+  eq(rows({ { "", "Del" } }), { "          " })
+  view.wrap = false
+  eq(rows({ { "aaaaaa bbbbbb", "Del" } }), { "aaaaaa bbbbbb" })
+  -- Highlight groups stay with their text across rows.
+  view.wrap, view.linebreak = true, false
+  local laid = Review._layout({ { "aaaaaaaa", "Del" }, { "XXXX", "Word" } }, view, "Fill")
+  eq(laid[1], { { "aaaaaaaa", "Del" }, { "XX", "Word" } })
+  eq(laid[2], { { "XX", "Word" }, { "        ", "Fill" } })
+end)
+
+T("undo after a reject reopens the hunk; redo rejects it again, reason and all", function()
+  local _, log, id, buf, path = two_hunks()
+  reason("keep it plain")
+  press("gS", 5)
+  eq(states(buf), { "pending", "rejected" })
+  eq(lines(buf)[5], "return M")
+  press("u")
+  eq(states(buf), { "pending", "pending" })
+  eq(lines(buf)[5], NEW5)
+  eq(marked(buf), { 3, 5 })
+  press("<C-r>")
+  eq(states(buf), { "pending", "rejected" })
+  press("ga", 3)
+  eq(
+    answer(log, id).text,
+    "The user accepted 1 of 2 hunks in "
+      .. vim.fn.fnamemodify(path, ":~")
+      .. "; unsaved in the editor. Rejected:\n- line 5: keep it plain"
+  )
+end)
+
+T("undo after an accept reopens the hunk", function()
+  local _, _, _, buf = two_hunks()
+  press("ga", 3)
+  eq(states(buf), { "accepted", "pending" })
+  press("u")
+  eq(states(buf), { "pending", "pending" })
+  eq(lines(buf)[3], NEW3)
+  eq(marked(buf), { 3, 5 })
+end)
+
+T("undo after an edit inside a hunk reopens it", function()
+  local _, _, _, buf = two_hunks()
+  press("A -- hi<Esc>", 3)
+  eq(states(buf), { "accepted", "pending" })
+  press("u")
+  eq(states(buf), { "pending", "pending" })
+end)
+
+T("undoing the agent's change ends the review as undone, and redo cannot bring it back", function()
+  local _, log, id, buf, path = two_hunks()
+  press("u")
+  eq(answer(log, id), { error = "The user undid the change to " .. vim.fn.fnamemodify(path, ":~") .. "." })
+  eq(lines(buf), OLD)
+  eq(vim.bo[buf].modified, false)
+  press("<C-r>")
+  eq(lines(buf), OLD)
+  eq(marked(buf), {})
+end)
+
+T("each undo takes back one step: the decision, then the change", function()
+  local _, log, id, buf = two_hunks()
+  press("ga", 3)
+  press("u")
+  eq(states(buf), { "pending", "pending" })
+  eq(H.bridge_answer(log, id), nil)
+  press("u")
+  ok(answer(log, id).error:find("undid", 1, true))
+end)
+
+T("an accept on an abandoned undo branch no longer counts; g- brings it back", function()
+  local _, _, _, buf = two_hunks()
+  press("ga", 3)
+  press("u")
+  press("Ix<Esc>", 1)
+  eq(states(buf), { "pending", "pending" })
+  press("<C-r>")
+  eq(states(buf), { "pending", "pending" })
+  press("g-")
+  eq(lines(buf)[1], "local M = {}")
+  eq(states(buf), { "accepted", "pending" })
+end)
+
+T("retyping a hunk's old text rejects it", function()
+  local _, _, _, buf = two_hunks()
+  press("ccreturn M<Esc>", 5)
+  eq(states(buf), { "pending", "rejected" })
+  eq(Review.get(buf).hunks[2].reason, nil)
+end)
+
+T("lines added above move the hunks and their marks", function()
+  local _, _, _, buf = two_hunks()
+  press("ggOone<CR>two<CR>three<Esc>")
+  eq(marked(buf), { 6, 8 })
+  press("ga", 6)
+  eq(states(buf), { "accepted", "pending" })
+end)
+
+T("a rejected hunk edited afterwards stays rejected, and the edit is reported", function()
+  local _, log, id, buf = two_hunks()
+  reason("no metatable")
+  press("gS", 5)
+  press("A -- done<Esc>", 5)
+  eq(states(buf), { "pending", "rejected" })
+  press("ga", 3)
+  local text = answer(log, id).text
+  ok(text:find("The user also edited the file during the review.", 1, true), text)
+  ok(text:find("- line 5: no metatable", 1, true), text)
+end)
+
+T("a decision is its own undo step even when run through :normal", function()
+  local _, _, _, buf = two_hunks()
+  api.nvim_win_set_cursor(0, { 5, 0 })
+  vim.cmd("normal gs")
+  H.settle()
+  vim.cmd("undo")
+  H.settle()
+  eq(states(buf), { "pending", "pending" })
+  eq(lines(buf)[3], NEW3)
+end)
+
+T("closing the buffer during a review ends it", function()
+  local _, log, id, buf, path = two_hunks()
+  vim.cmd("bwipeout! " .. buf)
+  H.settle()
+  eq(answer(log, id), {
+    error = "The buffer of "
+      .. vim.fn.fnamemodify(path, ":~")
+      .. " was closed during the review; the change was dropped.",
+  })
+end)
+
 return T
