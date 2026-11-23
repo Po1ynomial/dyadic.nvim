@@ -110,6 +110,9 @@ _Avoid_: approval, diff preview, patch session
 One contiguous changed region of a proposed change, accepted or rejected on its own.
 _Avoid_: block, chunk
 
+**Edited hunk**:
+An undecided hunk whose lines the user changed. Editing never decides a hunk; accepting an edited hunk accepts the user's version.
+
 **Review rule**:
 A path with a review setting; the nearest rule above a file decides whether changes to it are reviewed.
 _Avoid_: scope, policy

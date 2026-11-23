@@ -224,6 +224,10 @@ end
 local function banner(review, hunk, width)
   local keys = M.options(review.agent.config).keys
   local items = { { { string.format("hunk %d/%d", hunk.index, #review.hunks), "DyadicReviewHint" } } }
+  if hunk.edited then
+    -- What accept takes: the user's version.
+    items[#items + 1] = { { "edited", "DyadicReviewHint" } }
+  end
   for _, item in ipairs({
     { "accept", "accept" },
     { "reject", "reject" },
@@ -265,13 +269,11 @@ end
 --
 -- The buffer's text is the truth, and the undo history holds the decisions. The agent's
 -- change, and each accept or reject, is one undo step. After every change, undo and redo
--- included, each hunk is found by diffing the review's original text against the buffer,
--- and its state follows from what its lines show:
---   the agent's lines  pending, or accepted if an accept of it is in the undo path
---   the old lines      rejected
---   anything else      the user's edit: rejected if a reject of it is in the undo path,
---                      else accepted
--- Undoing past the agent's change ends the review as undone.
+-- included, each hunk is found by diffing the review's original text against the buffer.
+-- Only decisions decide: a hunk is accepted or rejected when an accept or reject of it is
+-- in the undo path, else it is pending, and edited when its lines are not the agent's.
+-- Editing never decides a hunk, so it never ends a review. Undoing past the agent's change
+-- ends the review as undone.
 
 local function pending(review)
   local list = {}
@@ -332,9 +334,9 @@ local function changes(review, lines)
   return list
 end
 
--- What a hunk's place in the buffer shows ("new", "old", or "other"), and the row where
--- its own lines start. Changes that overlap the hunk, or for an insertion touch it, count
--- as part of it.
+-- What a hunk's place in the buffer shows ("new", "old", or "other"), the row where its
+-- lines start, and how many lines it has there. Changes that overlap the hunk, or for an
+-- insertion touch it, count as part of it.
 local function locate(review, hunk, blocks, lines)
   local s, e = hunk.s, hunk.e
   local us, ue, grow, hit = s, e, 0, {}
@@ -363,11 +365,11 @@ local function locate(review, hunk, blocks, lines)
   local after = vim.list_slice(review.original, e + 1, ue)
   local proposed = vim.list_extend(vim.list_extend(vim.list_extend({}, before), hunk.lines), after)
   if same(region, proposed) then
-    return "new", first + (s - us)
+    return "new", first + (s - us), hunk.count
   elseif same(region, vim.list_slice(review.original, us + 1, ue)) then
-    return "old", first + (s - us)
+    return "old", first + (s - us), hunk.old_count
   end
-  return "other", first
+  return "other", first, #region
 end
 
 -- End the current undo block, so the next change, even one typed right away, is a step of
@@ -426,7 +428,7 @@ end
 -- The row a hunk is picked from and drawn at: its first added line, or for a deletion the
 -- line its removed lines are drawn above, or the last line when nothing follows.
 local function anchor(review, hunk)
-  if hunk.count > 0 then
+  if hunk.rows > 0 then
     return hunk.first
   end
   return math.min(hunk.first, api.nvim_buf_line_count(review.buf) - 1)
@@ -470,10 +472,11 @@ local function draw(review)
   local view = text_view(review, cursor_window(review))
   local count = api.nvim_buf_line_count(buf)
   for _, hunk in ipairs(pending(review)) do
-    for i = 0, hunk.count - 1 do
+    for i = 0, hunk.rows - 1 do
       local row = hunk.first + i
       api.nvim_buf_set_extmark(buf, ns, row, 0, { line_hl_group = "DyadicReviewAdd" })
-      for _, span in ipairs(hunk.new_words[i + 1] or {}) do
+      -- The changed words are the agent's; an edited hunk has other text.
+      for _, span in ipairs(not hunk.edited and hunk.new_words[i + 1] or {}) do
         api.nvim_buf_set_extmark(buf, ns, row, span[1], {
           end_col = span[2],
           hl_group = "DyadicReviewAddText",
@@ -488,7 +491,7 @@ local function draw(review)
     end
     if #virt > 0 then
       -- A deletion at the end shows below the last line.
-      local above = hunk.count > 0 or hunk.first < count
+      local above = hunk.rows > 0 or hunk.first < count
       api.nvim_buf_set_extmark(buf, ns, anchor(review, hunk), 0, { virt_lines = virt, virt_lines_above = above })
     end
   end
@@ -602,10 +605,10 @@ end
 local function edit_for(review, hunk, accept)
   if accept then
     local row = anchor(review, hunk)
-    local last = hunk.count > 0 and row + hunk.count or row + 1
+    local last = hunk.rows > 0 and row + hunk.rows or row + 1
     return { row, last, api.nvim_buf_get_lines(review.buf, row, last, false) }
   end
-  return { hunk.first, hunk.first + hunk.count, hunk.old }
+  return { hunk.first, hunk.first + hunk.rows, hunk.old }
 end
 
 -- After the review ended because its change was undone, a no-op change drops the redo, so
@@ -620,7 +623,7 @@ local function drop_redo(buf)
 end
 
 -- End a review. `how`: nil when every hunk is decided; "aborted" reverts the pending hunks
--- and reports nothing; "undone" when the change was undone; "closed" when the buffer went.
+-- the user did not edit and reports nothing; "undone" when the change was undone; "closed" when the buffer went.
 local function finish(review, how)
   if review.done then
     return
@@ -629,7 +632,9 @@ local function finish(review, how)
   if how == "aborted" and live then
     local edits = {}
     for _, hunk in ipairs(pending(review)) do
-      edits[#edits + 1] = edit_for(review, hunk, false)
+      if not hunk.edited then
+        edits[#edits + 1] = edit_for(review, hunk, false)
+      end
       hunk.state = "rejected"
     end
     if #edits > 0 then
@@ -687,17 +692,15 @@ local function reconcile(review)
   local lines = content_lines(review.buf)
   local blocks = changes(review, lines)
   for _, hunk in ipairs(review.hunks) do
-    local text, first = locate(review, hunk, blocks, lines)
+    local text, first, rows = locate(review, hunk, blocks, lines)
     local made = decision(review, hunk, path)
-    hunk.first = first
-    if text == "new" then
-      hunk.state = made and made.accept and "accepted" or "pending"
-    elseif text == "old" or (made and not made.accept) then
-      hunk.state = "rejected"
+    hunk.first, hunk.rows, hunk.edited = first, rows, text ~= "new"
+    if made then
+      hunk.state = made.accept and "accepted" or "rejected"
     else
-      hunk.state = "accepted"
+      hunk.state = "pending"
     end
-    hunk.reason = hunk.state == "rejected" and made and not made.accept and made.reason or nil
+    hunk.reason = made and not made.accept and made.reason or nil
   end
   if #pending(review) == 0 then
     finish(review, nil)
@@ -727,11 +730,11 @@ local function hunk_at(review, win)
   end
   local line = api.nvim_win_get_cursor(win)[1] - 1
   for _, hunk in ipairs(pending(review)) do
-    if hunk.count == 0 then
+    if hunk.rows == 0 then
       if anchor(review, hunk) == line then
         return hunk
       end
-    elseif line >= hunk.first and line < hunk.first + hunk.count then
+    elseif line >= hunk.first and line < hunk.first + hunk.rows then
       return hunk
     end
   end
@@ -740,7 +743,7 @@ end
 -- Virtual lines above the first line show only with filler rows at the top of the view.
 local function reveal_top(review, win)
   local hunk = review.banner
-  if not (win and hunk and anchor(review, hunk) == 0 and (hunk.count > 0 or hunk.first == 0)) then
+  if not (win and hunk and anchor(review, hunk) == 0 and (hunk.rows > 0 or hunk.first == 0)) then
     return
   end
   api.nvim_win_call(win, function()

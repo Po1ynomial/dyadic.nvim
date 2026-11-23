@@ -527,23 +527,24 @@ undecided hunk. In the reviewed buffer:
 
 The keys exist only while the review is open; a buffer-local mapping of your
 own on the same key comes back afterwards. Change or disable them with
-`review.keys`. Editing inside an undecided hunk accepts it with your changes.
-After your decisions the model learns what landed: the whole change, which
-hunks you rejected and why, and whether you also edited the file. Rejecting
-all of a new file's content leaves no buffer behind; windows that showed it
-stay and show the file shown before. When the run is aborted during a
-review, accepted hunks stay and the rest are reverted.
+`review.keys`.
+
+Only the keys decide; editing never does, so it never ends a review. You may
+edit inside an undecided hunk in as many steps as you like: its banner then
+says `edited`, accept takes your version, and reject puts the old lines
+back. After your decisions the model learns what landed: the whole change,
+which hunks you rejected and why, and whether you also edited the file.
+Rejecting all of a new file's content leaves no buffer behind; windows that
+showed it stay and show the file shown before. When the run is aborted
+during a review, accepted hunks and undecided ones you edited stay, and the
+rest are reverted.
 
 Undo and redo                                            *dyadic-review-undo*
 The agent's change is one undo step, and so is each decision, accepts
-included. A hunk's state follows what its lines show, however they got
-there:
-- the agent's lines: undecided, or accepted if its accept was not undone;
-- its old lines: rejected, so retyping the old text rejects it too;
-- anything else: your edit, which accepts the hunk unless you rejected it
-  before editing.
-So |u| after a decision reopens the hunk and |CTRL-R| makes the decision
-again, the reason included; |u| after an edit inside a hunk reopens it.
+included. A hunk is decided while its decision is in your undo history, and
+undecided otherwise. So |u| after a decision reopens the hunk and |CTRL-R|
+makes the decision again, the reason included; |u| after an edit inside a
+hunk makes it the agent's version again.
 Undoing the agent's change itself ends the review: the model is told you
 undid it, and |CTRL-R| no longer brings it back (|:undo| and |g+| still
 can). Once a review has ended, undo is ordinary editing and the model is
