@@ -117,6 +117,10 @@ function M.files(where, all)
         break
       end
       local path = vim.fs.joinpath(dir, name)
+      if kind == "link" then
+        local stat = uv.fs_stat(path)
+        kind = stat and stat.type or kind
+      end
       if kind == "directory" and recursive then
         scan(path, false)
       elseif kind == "file" and name:match("%.jsonl$") then
@@ -278,6 +282,219 @@ function M.list(where, all)
     end
   end
   return found
+end
+
+-- Read one session file's details in a worker thread, as pi's session list does
+-- (buildSessionInfo in core/session-manager.js). Runs from string.dump, so it may use only
+-- its arguments, `vim.uv`, and `vim.json`. Returns the path and the details as JSON, or "".
+local function read_details(path, chars)
+  local uv, json = vim.uv, vim.json
+  local fd = uv.fs_open(path, "r", 438)
+  if not fd then
+    return path, ""
+  end
+  local stat = uv.fs_fstat(fd)
+  local info = { path = path, count = 0 }
+  local header, activity
+  local function text_of(content)
+    if type(content) == "string" then
+      return content
+    end
+    local parts = {}
+    for _, block in ipairs(type(content) == "table" and content or {}) do
+      if type(block) == "table" and block.type == "text" and type(block.text) == "string" then
+        parts[#parts + 1] = block.text
+      end
+    end
+    return table.concat(parts, " ")
+  end
+  -- Whitespace runs become one space; long text is cut at a character boundary.
+  local function cut(text)
+    text = text:gsub("%s+", " "):gsub("^ ", "")
+    if #text <= chars then
+      return text
+    end
+    local stop = chars
+    while stop > 0 and (text:byte(stop + 1) or 0) >= 0x80 and text:byte(stop + 1) < 0xC0 do
+      stop = stop - 1
+    end
+    return text:sub(1, stop)
+  end
+  local function decode(line)
+    local ok, value = pcall(json.decode, line, { luanil = { object = true, array = true } })
+    return ok and type(value) == "table" and value or nil
+  end
+  -- Returns false to stop at a file that is not a session.
+  local function line(text)
+    if not header then
+      header = decode((text:gsub("^\239\187\191", "")))
+      if not header or header.type ~= "session" or type(header.id) ~= "string" then
+        return false
+      end
+      return true
+    end
+    -- Pi writes `type` first, so most lines need no decoding to be skipped.
+    local entry
+    local kind = text:match('^{"type":"([%w_]+)"')
+    if not kind then
+      entry = decode(text)
+      kind = entry and entry.type
+    end
+    if kind == "session_info" then
+      entry = entry or decode(text)
+      local name = entry and type(entry.name) == "string" and entry.name:match("^%s*(.-)%s*$") or ""
+      info.name = name ~= "" and name or nil
+    elseif kind == "model_change" then
+      entry = entry or decode(text)
+      if entry and entry.modelId then
+        info.model = (entry.provider and entry.provider .. "/" or "") .. entry.modelId
+      end
+    elseif kind == "thinking_level_change" then
+      entry = entry or decode(text)
+      info.thinking = entry and entry.thinkingLevel or info.thinking
+    end
+    if kind ~= "message" then
+      return true
+    end
+    info.count = info.count + 1
+    -- Tool results can be large and carry no text the picker shows; count them only.
+    local role = not entry and text:sub(1, 400):match('"message":{"role":"(%w+)"')
+    if role and role ~= "user" and role ~= "assistant" then
+      return true
+    end
+    entry = entry or decode(text)
+    local message = entry and entry.message
+    if type(message) ~= "table" or (message.role ~= "user" and message.role ~= "assistant") then
+      return true
+    end
+    local time = type(message.timestamp) == "number" and message.timestamp / 1000 or nil
+    if time and time > 0 then
+      activity = math.max(activity or 0, time)
+    end
+    if message.role == "assistant" and type(message.model) == "string" then
+      info.model = (type(message.provider) == "string" and message.provider .. "/" or "") .. message.model
+    end
+    local text_content = text_of(message.content)
+    if text_content:find("%S") then
+      if message.role == "user" then
+        info.first = info.first or cut(text_content)
+        info.last_user = cut(text_content)
+      else
+        info.last_assistant = cut(text_content)
+      end
+    end
+    return true
+  end
+  local pending, offset, valid = "", 0, true
+  while valid do
+    local chunk = uv.fs_read(fd, 262144, offset)
+    if not chunk or chunk == "" then
+      break
+    end
+    offset = offset + #chunk
+    local start = 1
+    while valid do
+      local stop = chunk:find("\n", start, true)
+      if not stop then
+        pending = pending .. chunk:sub(start)
+        break
+      end
+      local text = pending .. chunk:sub(start, stop - 1)
+      pending, start = "", stop + 1
+      if text ~= "" then
+        valid = line(text)
+      end
+    end
+  end
+  if valid and pending ~= "" then
+    valid = line(pending)
+  end
+  uv.fs_close(fd)
+  if not valid or not header then
+    return path, ""
+  end
+  info.id, info.cwd, info.created = header.id, type(header.cwd) == "string" and header.cwd or "", header.timestamp
+  info.parent = type(header.parentSession) == "string" and header.parentSession or nil
+  info.modified = activity or (stat and stat.mtime.sec or 0)
+  return path, json.encode(info)
+end
+
+-- Session details by path, kept while a file's size and modification time stay the same;
+-- session files are append-only.
+local details_cache = {}
+local THREADS = 4
+local TEXT_CHARS = 500
+
+local function version_of(path)
+  local stat = uv.fs_stat(path)
+  return stat and table.concat({ stat.size, stat.mtime.sec, stat.mtime.nsec }, ":")
+end
+
+-- Load the details of `paths` in worker threads. `on_item(details)` runs on the main loop
+-- for each session, at once for cached ones; `on_done()` runs after the last. Returns a
+-- handle whose :cancel() stops loading files not started yet.
+function M.load(paths, on_item, on_done)
+  local handle = { cancelled = false }
+  function handle:cancel()
+    self.cancelled = true
+  end
+  local queue = {}
+  for _, path in ipairs(paths) do
+    local version = version_of(path)
+    local hit = details_cache[path]
+    if version and hit and hit.version == version then
+      if hit.details then
+        on_item(hit.details)
+      end
+    elseif version then
+      queue[#queue + 1] = { path = path, version = version }
+    end
+  end
+  local next_index, running, versions = 1, 0, {}
+  local function finished()
+    if running == 0 and (next_index > #queue or handle.cancelled) and not handle.done then
+      handle.done = true
+      if on_done then
+        on_done()
+      end
+    end
+  end
+  local start
+  local function after(path, result)
+    running = running - 1
+    local details = result ~= "" and vim.json.decode(result) or false
+    if details then
+      details.modified = tonumber(details.modified) or 0
+    end
+    details_cache[path] = { version = versions[path], details = details }
+    if details and not handle.cancelled then
+      on_item(details)
+    end
+    start()
+    finished()
+  end
+  -- The after callback runs in a fast event, where most of the API is off limits.
+  local work = uv.new_work(read_details, function(path, result)
+    vim.schedule(function()
+      after(path, result)
+    end)
+  end)
+  start = function()
+    while not handle.cancelled and running < THREADS and next_index <= #queue do
+      local item = queue[next_index]
+      next_index, running = next_index + 1, running + 1
+      versions[item.path] = item.version
+      work:queue(item.path, TEXT_CHARS)
+    end
+  end
+  start()
+  finished()
+  return handle
+end
+
+-- For tests: forget loaded details.
+function M.forget()
+  details_cache = {}
 end
 
 return M
