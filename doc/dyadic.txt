@@ -455,6 +455,8 @@ time. dyadic keeps no database of its own.
                         Decide the hunk at the cursor, or all of them.
 :Dyadic {command}       Any pi command name from |dyadic-pi-commands|, such
                         as `model` or `resume`, without touching the draft.
+                        Other names, including extension commands, are an
+                        error; type those in the composer.
 
 Commands act on the agent of the current buffer, or else the last one used.
 `:Dyadic new` opens another agent; `/new` changes the session inside an

@@ -80,6 +80,23 @@ T("/resume lists sessions for this cwd and rereads only changed files", function
   eq(opened, 3)
 end)
 
+T(":Dyadic reports unknown subcommands", function()
+  local log = vim.fn.tempname()
+  H.open({ log = log, commands = { { name = "handoff", source = "extension" } } })
+  require("dyadic").command("modle")
+  require("dyadic").command("handoff")
+  H.settle()
+  eq(
+    vim.tbl_map(function(note)
+      return note.msg
+    end, _G.notes),
+    { "Dyadic: unknown command modle", "Dyadic: unknown command handoff" }
+  )
+  ok(not vim.iter(H.sent(log)):any(function(record)
+    return record.type == "prompt"
+  end))
+end)
+
 T("/hotkeys points to native mapping lists", function()
   local agent = H.open()
   agent:set_draft("/hotkeys")

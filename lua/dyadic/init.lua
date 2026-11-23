@@ -166,6 +166,7 @@ function M.action(name)
 end
 
 function M.command(text)
+  text = vim.trim(text or "")
   if text == "new" then
     M.open()
     return
@@ -196,12 +197,16 @@ function M.command(text)
     end)
     return
   end
+  local words = vim.split(text, "%s+", { trimempty = true })
+  if not vim.tbl_contains(M.complete(""), words[1]) then
+    vim.notify("Dyadic: unknown command " .. words[1], vim.log.levels.ERROR)
+    return
+  end
   local agent = M.get() or last
   if not agent or agent.closed then
     vim.notify("Dyadic: open an agent first with :Dyadic", vim.log.levels.WARN)
     return
   end
-  local words = vim.split(text, "%s+", { trimempty = true })
   if words[1] == "review" then
     last = agent
     require("dyadic.review").command(agent, vim.list_slice(words, 2))
