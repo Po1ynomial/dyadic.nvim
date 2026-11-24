@@ -1,7 +1,7 @@
 -- Scriptable stand-in for `pi --mode rpc`. Run as: nvim --clean -l tests/fakepi.lua [scenario.lua]
 -- A scenario file returns a table with optional `state`, `entries`, `commands`, `models`, `prompts`, `log`,
 -- `fail` (request type -> error message),
--- `leaf`, `labels` (entry id -> label), `bridge` (bridge command name -> { events = {...},
+-- `leaf`, `bridge` (bridge command name -> { events = {...},
 -- outcome = {...} }), and `no_bridge`.
 -- Like pi, the fake reports the bridge's `dyadic` command when dyadic loads it with `-e`,
 -- and its `tree` and `label` commands move the leaf and set labels.
@@ -14,12 +14,12 @@ if _G.arg[1] and _G.arg[1] ~= "" and _G.arg[1]:sub(1, 2) ~= "--" then
   scenario = dofile(_G.arg[1])
 end
 
-local function out(record)
-  io.stdout:write(vim.json.encode(record) .. "\n")
+local function out(record, encode)
+  io.stdout:write((encode or vim.json.encode)(record) .. "\n")
   io.stdout:flush()
 end
-local function ok(req, data)
-  out({ type = "response", id = req.id, command = req.type, success = true, data = data })
+local function ok(req, data, encode)
+  out({ type = "response", id = req.id, command = req.type, success = true, data = data }, encode)
 end
 local function fail(req, err)
   out({ type = "response", id = req.id, command = req.type, success = false, error = err })
@@ -35,7 +35,6 @@ local state = vim.tbl_extend("force", {
 }, scenario.state or {})
 local entries = vim.deepcopy(scenario.entries or {})
 local leaf = scenario.leaf or (entries[#entries] and entries[#entries].id)
-local labels = vim.deepcopy(scenario.labels or {})
 local queue = { steering = {}, followUp = {} }
 local next_id = 1000
 
@@ -58,11 +57,14 @@ end
 local function tree()
   local nodes, roots = {}, {}
   for _, entry in ipairs(entries) do
-    nodes[entry.id] = { entry = entry, children = {}, label = labels[entry.id] }
+    nodes[entry.id] = { entry = entry, children = {} }
   end
   for _, entry in ipairs(entries) do
-    local parent = entry.parentId ~= vim.NIL and nodes[entry.parentId] or nil
+    local parent = entry.parentId ~= entry.id and nodes[entry.parentId] or nil
     table.insert(parent and parent.children or roots, nodes[entry.id])
+    if entry.type == "label" and nodes[entry.targetId] then
+      nodes[entry.targetId].label = entry.label
+    end
   end
   return roots
 end
@@ -107,7 +109,8 @@ for line in io.stdin:lines() do
   elseif t == "get_entries" then
     ok(req, { entries = entries, leafId = leaf or vim.NIL })
   elseif t == "get_tree" then
-    ok(req, { tree = tree(), leafId = leaf or vim.NIL })
+    -- Like pi, emit deep trees even when the client's vim.json.decode would reject them.
+    ok(req, { tree = tree(), leafId = leaf or vim.NIL }, vim.fn.json_encode)
   elseif t == "get_session_stats" then
     ok(req, { tokens = { total = 0 }, cost = 0 })
   elseif t == "get_commands" then
@@ -159,7 +162,12 @@ for line in io.stdin:lines() do
       end
       outcome = { cancelled = false }
     elseif name == "label" and not outcome then
-      labels[args.id] = args.label ~= "" and args.label or nil
+      append({
+        type = "label",
+        targetId = args.id,
+        label = args.label ~= "" and args.label or nil,
+        timestamp = os.date("!%Y-%m-%dT%H:%M:%S.000Z"),
+      })
       outcome = {}
     end
     if outcome and args.token then

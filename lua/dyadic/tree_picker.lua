@@ -1,5 +1,5 @@
 -- The tree picker: a picker float (lua/dyadic/picker.lua) that shows the session tree
--- (stock `get_tree`) and moves the agent within it through the bridge. The rows follow
+-- (built from stock `get_entries`) and moves the agent within it through the bridge. The rows follow
 -- pi's own tree selector; folds are Neovim's manual folds.
 local M = {}
 local api = vim.api
@@ -220,11 +220,11 @@ local function go(p, summary_prompt)
 end
 
 local function reload(p, id)
-  p.agent:request("get_tree", {}, function(err, data)
+  p.agent:request("get_entries", {}, function(err, data)
     if err or p.closed then
       return
     end
-    p.tree = Tree.new(data.tree, data.leafId)
+    p.tree = Tree.new(data.entries, data.leafId)
     render(p, id)
   end)
 end
@@ -404,7 +404,7 @@ local function show(agent, data, initial)
   local p = Picker.open({
     kind = "tree",
     agent = agent,
-    tree = Tree.new(data.tree, data.leafId),
+    tree = Tree.new(data.entries, data.leafId),
     filter = "default",
     show_times = false,
     parts = {},
@@ -439,11 +439,11 @@ function M.open(agent, opts)
     agent:notice("Wait for the agent to finish before opening the tree", "warning")
     return false
   end
-  agent:request("get_tree", {}, function(err, data)
+  agent:request("get_entries", {}, function(err, data)
     if err or agent.closed then
       return
     end
-    if type(data) ~= "table" or type(data.tree) ~= "table" or #data.tree == 0 then
+    if type(data) ~= "table" or type(data.entries) ~= "table" or #data.entries == 0 then
       agent:notice("No entries in this session", "warning")
       return
     end

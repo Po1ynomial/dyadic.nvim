@@ -67,19 +67,7 @@ local function cursor_line(p)
 end
 
 T("model: rows, connectors, and branch order follow pi", function()
-  local nodes = {}
-  local roots = {}
-  for _, entry in ipairs(branching()) do
-    nodes[entry.id] = { entry = entry, children = {} }
-  end
-  for _, entry in ipairs(branching()) do
-    if entry.parentId then
-      table.insert(nodes[entry.parentId].children, nodes[entry.id])
-    else
-      roots[#roots + 1] = nodes[entry.id]
-    end
-  end
-  local state = Tree.new(roots, "e6")
+  local state = Tree.new(branching(), "e6")
   local view = Tree.view(state, "default", "")
   eq(
     vim.tbl_map(function(row)
@@ -116,9 +104,7 @@ T("model: tool results, summaries, and copy text", function()
   }
   local result = { type = "message", id = "r", parentId = "a", message = { role = "toolResult", toolCallId = "t1" } }
   local summary = { type = "branch_summary", id = "s", parentId = "r", summary = "what happened" }
-  local roots =
-    { { entry = call, children = { { entry = result, children = { { entry = summary, children = {} } } } } } }
-  local state = Tree.new(roots, "s")
+  local state = Tree.new({ call, result, summary }, "s")
   local view = Tree.view(state, "default", "")
   -- The assistant message has no text, so only its result and the summary show.
   eq(#view.rows, 2)
@@ -128,12 +114,80 @@ T("model: tool results, summaries, and copy text", function()
   eq(#Tree.view(state, "no-tools", "").rows, 1)
 end)
 
+T("model: children sort by timestamp with file order as a tiebreaker", function()
+  local older, newer = "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:01.000Z"
+  local state = Tree.new({
+    { id = "root", parentId = vim.NIL, timestamp = newer },
+    { id = "new", parentId = "root", timestamp = newer },
+    { id = "old-first", parentId = "root", timestamp = older },
+    { id = "old-second", parentId = "root", timestamp = older },
+    { id = "orphan", parentId = "missing", timestamp = older },
+    { id = "self", parentId = "self", timestamp = older },
+  }, "self")
+  local view = Tree.view(state, "all", "")
+  eq(
+    vim.tbl_map(function(row)
+      return row.id
+    end, view.rows),
+    { "self", "root", "old-first", "old-second", "new", "orphan" }
+  )
+  eq(view.children[""], { "self", "root", "orphan" })
+end)
+
+T("model: label changes replay in file order across branches", function()
+  local entries = branching()
+  local time = "2026-01-01T00:00:00.000Z"
+  vim.list_extend(entries, {
+    { type = "label", id = "e7", parentId = "e4", targetId = "e5", label = "first", timestamp = time },
+    { type = "label", id = "e8", parentId = "e7", targetId = "e6", label = "remove me", timestamp = time },
+    { type = "label", id = "e9", parentId = "e8", targetId = "e5", label = "latest", timestamp = time },
+    { type = "label", id = "e10", parentId = "e9", targetId = "e6", label = vim.NIL },
+  })
+  local state = Tree.new(entries, "e6")
+  local labeled = Tree.view(state, "labeled-only", "latest")
+  eq(#labeled.rows, 1)
+  eq(labeled.rows[1].id, "e5")
+  eq(labeled.rows[1].node.labelTimestamp, time)
+  eq(state.nodes.e6.label, nil)
+  eq(state.nodes.e6.labelTimestamp, nil)
+  eq(#Tree.view(state, "labeled-only", "").rows, 1)
+end)
+
+T("model: a 10000-entry branch is traversed without recursion", function()
+  local entries = {}
+  for i = 1, 10000 do
+    entries[i] = { id = "e" .. i, parentId = i > 1 and "e" .. (i - 1) or vim.NIL }
+  end
+  local state = Tree.new(entries, "e10000")
+  local view = Tree.view(state, "all", "")
+  eq(#view.rows, 10000)
+  eq(view.rows[10000].id, "e10000")
+  ok(state.active.e1 and state.active.e10000)
+end)
+
 T("/tree opens at the current entry with pi's rows", function()
   local _, p = open_picker()
   eq(lines(p), expected_rows)
   eq(cursor_line(p), 4)
   local config = vim.api.nvim_win_get_config(p.list_win)
   ok(vim.inspect(config.title):find("Tree · default · 4/6", 1, true), vim.inspect(config.title))
+end)
+
+T("/tree opens a branch whose nested RPC reply would exceed the decoder depth limit", function()
+  local messages = {}
+  for i = 1, 600 do
+    messages[i] = user("message " .. i)
+  end
+  local agent = H.open({ entries = H.chain(messages) })
+  agent:set_draft("/tree")
+  agent:submit()
+  H.wait(function()
+    return Picker.current() ~= nil or agent.rpc._failure ~= nil
+  end, 3000, "the picker to open or the RPC to fail")
+  eq(agent.rpc._failure, nil)
+  local p = Picker.current()
+  eq(#lines(p), 600)
+  eq(cursor_line(p), 600)
 end)
 
 T("filter keys toggle like pi's, and the search bar filters as you type", function()

@@ -1,6 +1,6 @@
-# dyadic ships a pi extension
+# dyadic ships a thin pi extension
 
-Stock RPC cannot move within a session's tree or let pi's file tools see editor buffers, so dyadic loads its own extension, the bridge (`pi/dyadic.ts`), into every agent with `-e`, unless `bridge = false`. The bridge talks to Neovim through pi's extension UI dialogs on the existing stdio, with JSON in the dialogs' string fields. The tree picker is drawn by dyadic from stock `get_tree`; the bridge adds thin commands for what pi offers to extensions alone (`navigateTree`, `setLabel`, `reload`), and a `before_agent_start` hook that adds change notes when they are on (ADR 0004). The replaced `read`, `edit` and `write` are pi's own tool definitions with editor-backed file operations, so pi keeps its matching, result format and rendering. Beyond one tool call's plan, the bridge keeps no state: dyadic decides, and the bridge passes the answer on.
+Stock RPC cannot move within a session's tree or let pi's file tools see editor buffers, so dyadic loads its own extension, the bridge, into every agent. The bridge covers only what pi offers to extensions alone; anything stock RPC can do, dyadic does through stock RPC. It talks to Neovim through pi's extension UI dialogs on the existing stdio, with JSON in the dialogs' string fields. Its file tools are pi's own tool definitions with editor-backed file operations, so pi keeps its matching, result format and rendering. Beyond one tool call's plan, the bridge keeps no state: dyadic decides, and the bridge passes the answer on.
 
 ## Considered options
 

@@ -1,8 +1,9 @@
--- The tree picker's model: pi's session tree (from `get_tree`) as rows, with pi's filters,
+-- The tree picker's model: pi's session entries (from `get_entries`) as rows, with pi's filters,
 -- search, connectors, and branch-segment navigation. It follows pi's own tree selector so
 -- both show the same rows; only the row text uses dyadic's history vocabulary.
 local M = {}
 local clean = require("dyadic.text").clean
+local entry_time = require("dyadic.entries").time
 
 M.filters = { "default", "no-tools", "user-only", "labeled-only", "all" }
 
@@ -14,10 +15,6 @@ local function value(v)
     return nil
   end
   return v
-end
-
-local function parent_of(entry)
-  return value(entry.parentId)
 end
 
 -- Text blocks only, like pi; `limit` cuts the result to that many characters.
@@ -49,54 +46,78 @@ local function normalize(s)
   return vim.trim((clean(s):gsub("[\n\t]", " ")))
 end
 
--- Build the full model from `get_tree` data. Children that lead to the current leaf come
--- first, as in pi.
-function M.new(roots, leaf_id)
+-- pi's `get_tree` nests two JSON levels per entry, so `vim.json.decode` rejects branches of
+-- about 500 entries; build the tree from the flat `get_entries` reply instead, without recursion.
+function M.new(entries, leaf_id)
   local state = {
-    roots = type(roots) == "table" and roots or {},
     leaf = value(leaf_id),
     nodes = {}, -- id -> node
     active = {}, -- ids on the active branch
     tool_calls = {}, -- tool call id -> { name, arguments }
     flat = {}, -- every node in display order
   }
-  local contains = {}
-  local function mark(node)
-    local entry = node.entry or {}
-    local has = state.leaf ~= nil and entry.id == state.leaf
-    state.nodes[entry.id] = node
-    for _, child in ipairs(node.children or {}) do
-      if mark(child) then
-        has = true
+  local roots, children = {}, {}
+  local positions, times = {}, {}
+  for index, entry in ipairs(entries) do
+    local id = entry.id
+    state.nodes[id] = { entry = entry }
+    positions[id] = index
+    times[id] = entry_time(entry.timestamp) or 0
+  end
+  for _, entry in ipairs(entries) do
+    local id, parent = entry.id, value(entry.parentId)
+    -- Pi treats self-parented and orphaned entries as roots, in file order.
+    if parent ~= id and state.nodes[parent] then
+      state.nodes[id].parent_id = parent
+      children[parent] = children[parent] or {}
+      table.insert(children[parent], id)
+    else
+      roots[#roots + 1] = id
+    end
+    -- Labels are session-wide; replay changes in file order, not just on the active branch.
+    if entry.type == "label" then
+      local target = state.nodes[entry.targetId]
+      if target then
+        local label = value(entry.label)
+        target.label = label ~= "" and label or nil
+        target.labelTimestamp = target.label and entry.timestamp or nil
       end
     end
-    contains[node] = has
-    return has
   end
-  for _, root in ipairs(state.roots) do
-    mark(root)
+  for _, siblings in pairs(children) do
+    table.sort(siblings, function(a, b)
+      if times[a] == times[b] then
+        return positions[a] < positions[b]
+      end
+      return times[a] < times[b]
+    end)
   end
   local current = state.leaf
-  while current and state.nodes[current] do
+  while state.nodes[current] and not state.active[current] do
     state.active[current] = true
-    current = parent_of(state.nodes[current].entry)
-  end
-  local function ordered(nodes)
-    local first, rest = {}, {}
-    for _, node in ipairs(nodes or {}) do
-      table.insert(contains[node] and first or rest, node)
-    end
-    vim.list_extend(first, rest)
-    return first
+    current = state.nodes[current].parent_id
   end
   local stack = {}
-  local roots_in_order = ordered(state.roots)
-  for index = #roots_in_order, 1, -1 do
-    stack[#stack + 1] = roots_in_order[index]
+  local function push(ids)
+    -- Visit the active branch first, then the others in pi's order.
+    local active_id
+    for index = #ids, 1, -1 do
+      local id = ids[index]
+      if state.active[id] then
+        active_id = id
+      else
+        stack[#stack + 1] = id
+      end
+    end
+    if active_id then
+      stack[#stack + 1] = active_id
+    end
   end
+  push(roots)
   while #stack > 0 do
-    local node = table.remove(stack)
-    local entry = node.entry or {}
+    local id = table.remove(stack)
+    local node = state.nodes[id]
+    local entry = node.entry
     if entry.type == "message" and type(entry.message) == "table" and entry.message.role == "assistant" then
       for _, block in ipairs(type(entry.message.content) == "table" and entry.message.content or {}) do
         if type(block) == "table" and block.type == "toolCall" and block.id then
@@ -105,9 +126,8 @@ function M.new(roots, leaf_id)
       end
     end
     state.flat[#state.flat + 1] = node
-    local children = ordered(node.children)
-    for index = #children, 1, -1 do
-      stack[#stack + 1] = children[index]
+    if children[id] then
+      push(children[id])
     end
   end
   return state
@@ -228,10 +248,9 @@ function M.view(state, filter, query)
   local parent, children = {}, { [""] = {} }
   for _, node in ipairs(visible) do
     local id = node.entry.id
-    local ancestor = parent_of(node.entry)
+    local ancestor = node.parent_id
     while ancestor ~= nil and not visible_ids[ancestor] do
-      local ancestor_node = state.nodes[ancestor]
-      ancestor = ancestor_node and parent_of(ancestor_node.entry) or nil
+      ancestor = state.nodes[ancestor].parent_id
     end
     parent[id] = ancestor
     local key = ancestor or ""
@@ -337,7 +356,7 @@ function M.nearest(state, view, id)
       return view.index[current]
     end
     local node = state.nodes[current]
-    current = node and parent_of(node.entry) or nil
+    current = node and node.parent_id or nil
   end
   return math.max(1, #view.rows)
 end
@@ -549,7 +568,7 @@ end
 
 -- Label time as pi shows it: "14:05" today, "3/9 14:05" this year, else "25/3/9 14:05".
 function M.label_time(iso)
-  local time = require("dyadic.entries").time(iso)
+  local time = entry_time(iso)
   if not time then
     return nil
   end
