@@ -361,6 +361,74 @@ T("output follows only while the cursor is on the last line", function()
   eq(vim.api.nvim_win_get_cursor(win)[1], 3)
 end)
 
+-- Stream text into a run with 'smoothscroll' on while the history's cursor is on its last
+-- line, and check after every render that the window shows the output's end on its last
+-- row and keeps that view until the next change.
+local function check_following(focus_composer)
+  vim.o.smoothscroll = true
+  local entries = {}
+  for i = 1, 6 do
+    entries[#entries + 1] = { role = "user", content = "question " .. i, timestamp = i * 10 }
+    entries[#entries + 1] = assistant(
+      i * 10 + 1,
+      { { type = "text", text = "answer " .. i .. "\nline two with `code` and **bold**\nline three" } }
+    )
+  end
+  local agent = H.open({ entries = H.chain(entries) })
+  H.settle()
+  local win = H.history_win(agent)
+  vim.api.nvim_win_set_cursor(win, { vim.api.nvim_buf_line_count(agent.history_buf), 0 })
+  if focus_composer then
+    vim.api.nvim_set_current_win(require("dyadic.composer").window(agent))
+  else
+    vim.api.nvim_set_current_win(win)
+  end
+  local View = require("dyadic.view")
+  local function view()
+    return vim.api.nvim_win_call(win, function()
+      local saved = vim.fn.winsaveview()
+      return { topline = saved.topline, skipcol = saved.skipcol, lnum = saved.lnum }
+    end)
+  end
+  -- Screen rows from the window's top to the end of the buffer.
+  local function rows(saved)
+    return vim.api.nvim_win_text_height(win, { start_row = saved.topline - 1, start_vcol = saved.skipcol }).all
+  end
+  local function delta(text)
+    return { type = "message_update", assistantMessageEvent = { type = "text_delta", contentIndex = 0, delta = text } }
+  end
+  H.emit(agent, {
+    { type = "agent_start" },
+    { type = "message_start", message = { role = "user", content = "go", timestamp = 100 } },
+    { type = "message_end", message = { role = "user", content = "go", timestamp = 100 } },
+    { type = "message_start", message = { role = "assistant", content = {}, timestamp = 101, model = "m" } },
+    { type = "message_update", assistantMessageEvent = { type = "text_start", contentIndex = 0 } },
+  })
+  local words = { "Here", " is", " `some", "_code`", " and", " **bold", " text**", " plus a [link](http" }
+  vim.list_extend(words, { "://x.y).", "\n\n```lua\n", "local x", " = 1\n", "```\n\n", "- item", " one\n- item two" })
+  vim.list_extend(words, { " with a fairly long tail that wraps across the window width for sure yes" })
+  for index, word in ipairs(words) do
+    H.emit(agent, { delta(word) })
+    View.render(agent)
+    vim.cmd("redraw")
+    local first = view()
+    -- Rendering the same output again leaves the view as it is.
+    View.render(agent)
+    vim.cmd("redraw")
+    eq(view(), first, "the view moved without new output after piece " .. index)
+    eq(first.lnum, vim.api.nvim_buf_line_count(agent.history_buf))
+    eq(rows(first), vim.fn.getwininfo(win)[1].height, "the output's end is off the last row after piece " .. index)
+  end
+end
+
+T("output follows without jumping under 'smoothscroll'", function()
+  check_following(false)
+end)
+
+T("output follows while the composer has the focus", function()
+  check_following(true)
+end)
+
 T("g] and g[ jump between speakers", function()
   local agent = open_finished()
   local win = H.history_win(agent)

@@ -796,6 +796,27 @@ local function set_row(buf, row)
   end
 end
 
+local SCROLL_DOWN = vim.keycode("<C-e>")
+
+-- Put the cursor on the last line and that line's end on the window's last row. zb fills
+-- the window again after the history shrank, but it shows whole lines only. With
+-- 'smoothscroll', when they do not fit exactly, the last line ends below the window, and
+-- Neovim later scrolls it into view by screen rows; the next zb would undo that. Scroll by
+-- screen rows right away instead, so each render leaves the view Neovim keeps. Call in `win`.
+local function follow(win, last)
+  api.nvim_win_set_cursor(win, { last, 0 })
+  vim.cmd("normal! zb")
+  if not vim.wo[win].smoothscroll then
+    return
+  end
+  local view = vim.fn.winsaveview()
+  local rows = api.nvim_win_text_height(win, { start_row = view.topline - 1, start_vcol = view.skipcol }).all
+  local extra = rows - vim.fn.getwininfo(win)[1].height
+  if extra > 0 then
+    vim.cmd("normal! " .. extra .. SCROLL_DOWN)
+  end
+end
+
 -- Write only the changed line range, then re-apply the overlay rows from the first one that
 -- changed. Rows of cached runs keep their chunk tables, so unchanged rows are found by
 -- identity.
@@ -864,8 +885,7 @@ local function write(agent, model, previous)
     if valid_win(snapshot.win) then
       api.nvim_win_call(snapshot.win, function()
         if snapshot.bottom then
-          api.nvim_win_set_cursor(snapshot.win, { #lines, 0 })
-          vim.cmd("normal! zb")
+          follow(snapshot.win, #lines)
         else
           snapshot.view.lnum = math.min(snapshot.view.lnum, #lines)
           vim.fn.winrestview(snapshot.view)
