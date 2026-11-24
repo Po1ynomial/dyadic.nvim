@@ -151,7 +151,7 @@ end)
 T("closing ends the pi process", function()
   local agent = H.open()
   local pid = agent.rpc.pid
-  require("dyadic").command("close")
+  require("dyadic").action("close")
   H.wait(function()
     return agent.rpc._finished == true
   end)

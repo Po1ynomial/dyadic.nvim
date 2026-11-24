@@ -53,8 +53,8 @@ T(":Dyadic with flags starts an agent with them and drafts the messages", functi
   local agent = started()
   eq(agent.args, { "--offline", "-c", "--model", "fake/one" })
   eq(agent:get_draft(), "fix the test and the docs")
-  -- `new` is plain pi, with only `args` from setup().
-  require("dyadic").command("new")
+  -- `:Dyadic` alone is plain pi, with only `args` from setup().
+  require("dyadic").command("")
   eq(require("dyadic").list()[2].args, { "--offline" })
 end)
 

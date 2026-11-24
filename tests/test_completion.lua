@@ -82,7 +82,7 @@ end)
 T("commands come with hints, descriptions, and sources, built-ins first, which run on accept", function()
   local agent = H.open({ commands = commands })
   eq(labels(items(agent, "/re")), { "/reload", "/resume" })
-  -- Only pi's names: no /stats, and :Dyadic has `close` instead of `quit`.
+  -- Only pi's names: no /stats.
   eq(labels(items(agent, "/s")), { "/session", "/settings", "/skill:review" })
   eq(require("dyadic").complete("q"), {})
   local all = items(agent, "/")
@@ -190,7 +190,7 @@ T("the omnifunc completes the same places, with menus and descriptions", functio
   local agent = H.open({ commands = commands })
   agent.cwd = project()
   Completion.listers = {}
-  require("dyadic").command("composer")
+  require("dyadic.view").focus(agent, true)
   eq(vim.bo.omnifunc, "v:lua.require'dyadic.completion'.omnifunc")
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { "/re", "/re", "see @b.l" })
   vim.api.nvim_win_set_cursor(0, { 1, 3 })
@@ -221,7 +221,7 @@ end)
 
 T("accepting an omnifunc item that completes a command submits it", function()
   local agent = H.open()
-  require("dyadic").command("composer")
+  require("dyadic.view").focus(agent, true)
   -- Only CTRL-Y accepts; other ways to end completion leave the draft.
   agent:set_draft("/na")
   H.keys("A<C-x><C-o><Esc>")
@@ -306,7 +306,7 @@ T("the blink.cmp source answers in the composer only", function()
   eq(source:get_trigger_characters(), { "/", "@" })
   vim.api.nvim_set_current_buf(agent.history_buf)
   ok(not source:enabled())
-  require("dyadic").command("composer")
+  require("dyadic.view").focus(agent, true)
   ok(source:enabled())
   local response
   source:get_completions({ bufnr = agent.composer_buf, line = "/mo", cursor = { 1, 3 } }, function(found)
@@ -389,7 +389,7 @@ T("real blink.cmp completes commands, arguments, and paths in the composer", fun
     local H = dofile(root .. "/tests/helpers.lua")
     _G.agent = H.open({ commands = commands })
     _G.agent.cwd = cwd
-    require("dyadic").command("composer")
+    require("dyadic.view").focus(agent, true)
     -- blink.cmp finishes its setup asynchronously.
     return vim.wait(5000, function()
       return require("blink.cmp.completion.trigger").buffer_events ~= nil

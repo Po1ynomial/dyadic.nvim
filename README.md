@@ -33,7 +33,7 @@ require('dyadic').setup({
 })
 ```
 
-Run `:Dyadic` to show an agent. Press `i` (or `a`, `o`, and the like) in the history to write in the composer below it, then press Enter in Normal mode to submit. `:Dyadic toggle` moves between your code and the agent: from your code it goes into the agent's windows, and from there it hides them. `:Dyadic new` opens another agent, and `:Dyadic` with pi's arguments, such as `:Dyadic -c` or `:Dyadic -r`, opens one as `pi` would.
+Run `:Dyadic` to open an agent, as you would run `pi`; with pi's arguments, such as `:Dyadic -c` or `:Dyadic -r`, it opens one as `pi` would with them. Press `i` (or `a`, `o`, and the like) in the history to write in the composer below it, then press Enter in Normal mode to submit. `:Dyadic toggle`, best on a key, moves between your code and the agent: from your code it goes into the agent's windows, and from there it hides them. Pi's commands, such as `/model` or `/tree`, are typed in the composer.
 
 ## Documentation
 

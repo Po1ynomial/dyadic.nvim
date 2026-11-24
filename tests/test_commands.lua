@@ -60,18 +60,30 @@ T("TUI-only names that pi lists as commands are forwarded", function()
   end, 3000, "the draft to clear")
 end)
 
-T(":Dyadic reports unknown subcommands", function()
+T(":Dyadic runs no pi commands or actions, and says where they are", function()
   local log = vim.fn.tempname()
   H.open({ log = log, commands = { { name = "handoff", source = "extension" } } })
-  require("dyadic").command("modle")
-  require("dyadic").command("handoff")
+  for _, word in ipairs({ "modle", "handoff", "model", "compact", "new", "submit", "close", "composer" }) do
+    require("dyadic").command(word)
+  end
   H.settle()
   eq(
     vim.tbl_map(function(note)
       return note.msg
     end, _G.notes),
-    { "Dyadic: unknown command modle", "Dyadic: unknown command handoff" }
+    {
+      "Dyadic: unknown command modle",
+      "Dyadic: unknown command handoff",
+      "Dyadic: model is a pi command; type /model in the composer, or map the `model` action",
+      "Dyadic: compact is a pi command; type /compact in the composer",
+      "Dyadic: :Dyadic opens another agent; /new in the composer starts a new session",
+      'Dyadic: submit is an action; map it, or call require("dyadic").action("submit")',
+      'Dyadic: close is an action; map it, or call require("dyadic").action("close")',
+      "Dyadic: unknown command composer",
+    }
   )
+  eq(#require("dyadic").list(), 1)
+  eq(require("dyadic").complete(""), { "agents", "review", "toggle" })
   ok(not vim.iter(H.sent(log)):any(function(record)
     return record.type == "prompt"
   end))
@@ -85,16 +97,6 @@ T("/hotkeys points to native mapping lists", function()
   ok(_G.notes[1].msg:find(":nmap <buffer>", 1, true), _G.notes[1].msg)
   eq(#agent.messages, 0)
   ok(not vim.tbl_contains(H.completions(agent, "/h"), "/hotkeys"))
-end)
-
-T(":Dyadic composer focuses the last agent's composer from anywhere", function()
-  local agent = H.open()
-  vim.cmd("tabnew")
-  require("dyadic").command("composer")
-  eq(vim.api.nvim_get_current_buf(), agent.composer_buf)
-  vim.api.nvim_set_current_win(H.history_win(agent))
-  require("dyadic").command("composer")
-  eq(vim.api.nvim_get_current_buf(), agent.composer_buf)
 end)
 
 T("focus actions are gone; window commands move within the pair", function()

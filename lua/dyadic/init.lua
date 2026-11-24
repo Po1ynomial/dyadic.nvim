@@ -209,23 +209,33 @@ function M.action(name)
   end
 end
 
+-- Why a word is not a :Dyadic command, for the words people may try: pi's commands and
+-- the actions.
+local function not_a_command(word)
+  local View = require("dyadic.view")
+  if word == "new" then
+    return "Dyadic: :Dyadic opens another agent; /new in the composer starts a new session"
+  end
+  if vim.tbl_contains(require("dyadic.commands").names, word) then
+    local hint = View.actions[word] and string.format(", or map the `%s` action", word) or ""
+    return string.format("Dyadic: %s is a pi command; type /%s in the composer%s", word, word, hint)
+  end
+  if View.actions[word] or word == "close" then
+    return string.format('Dyadic: %s is an action; map it, or call require("dyadic").action("%s")', word, word)
+  end
+  return "Dyadic: unknown command " .. word
+end
+
+-- :Dyadic [pi arguments], or one of dyadic's own commands.
 function M.command(text)
   text = vim.trim(text or "")
-  if text == "new" then
-    start()
-    return
-  end
-  if text:sub(1, 1) == "-" then
+  if text == "" or text:sub(1, 1) == "-" then
     local words, err = require("dyadic.cli").split(text)
     if not words then
       vim.notify("Dyadic: " .. err, vim.log.levels.ERROR)
       return
     end
     start(words)
-    return
-  end
-  if text == "" then
-    M.show()
     return
   end
   if text == "toggle" then
@@ -251,8 +261,8 @@ function M.command(text)
     return
   end
   local words = vim.split(text, "%s+", { trimempty = true })
-  if not vim.tbl_contains(M.complete(""), words[1]) then
-    vim.notify("Dyadic: unknown command " .. words[1], vim.log.levels.ERROR)
+  if words[1] ~= "review" then
+    vim.notify(not_a_command(words[1]), vim.log.levels.ERROR)
     return
   end
   local agent = M.get() or last
@@ -260,17 +270,8 @@ function M.command(text)
     vim.notify("Dyadic: open an agent first with :Dyadic", vim.log.levels.WARN)
     return
   end
-  if words[1] == "review" then
-    last = agent
-    require("dyadic.review").command(agent, vim.list_slice(words, 2))
-  elseif text == "composer" then
-    last = agent
-    require("dyadic.view").focus(agent, true)
-  elseif text == "abort" or text == "close" or text == "submit" or text == "follow_up" or text == "dequeue" then
-    M.action(text)
-  else
-    require("dyadic.commands").run(agent, "/" .. text)
-  end
+  last = agent
+  require("dyadic.review").command(agent, vim.list_slice(words, 2))
 end
 
 -- Complete `prefix`, the word being typed; `before` are the words before it.
@@ -282,18 +283,9 @@ function M.complete(prefix, before)
   if #before > 0 then
     return {}
   end
-  local items = { "new", "toggle", "agents", "composer", "abort", "close", "submit", "follow_up", "dequeue", "review" }
-  vim.list_extend(items, require("dyadic.commands").names)
-  -- `close` already ends the agent.
-  local result, seen = {}, { quit = true }
-  for _, item in ipairs(items) do
-    if not seen[item] and item:sub(1, #prefix) == prefix then
-      result[#result + 1] = item
-      seen[item] = true
-    end
-  end
-  table.sort(result)
-  return result
+  return vim.tbl_filter(function(item)
+    return item:sub(1, #prefix) == prefix
+  end, { "agents", "review", "toggle" })
 end
 
 function M.shutdown()

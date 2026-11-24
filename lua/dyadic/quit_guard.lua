@@ -26,7 +26,7 @@ local function guard_buffer()
   vim.bo[buf].bufhidden = "hide"
   vim.bo[buf].swapfile = false
   api.nvim_buf_set_name(buf, NAME)
-  api.nvim_buf_set_lines(buf, 0, -1, false, { "An agent is working. :Dyadic abort, or :qa! to quit anyway." })
+  api.nvim_buf_set_lines(buf, 0, -1, false, { "An agent is working. Wait, or :qa! to quit anyway." })
   vim.bo[buf].modifiable = false
   -- "Writing" changes nothing, so :wqa and :xa are refused too.
   api.nvim_create_autocmd("BufWriteCmd", { buffer = buf, callback = function() end })
@@ -67,7 +67,7 @@ function M.explain(others)
     return tostring(agent.id)
   end, busy)
   vim.notify(
-    string.format("Dyadic: pi is working in agent %s; :Dyadic abort, or :qa! to quit anyway", table.concat(names, ", ")),
+    string.format("Dyadic: pi is working in agent %s; wait, or :qa! to quit anyway", table.concat(names, ", ")),
     vim.log.levels.WARN
   )
 end
