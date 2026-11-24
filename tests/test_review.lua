@@ -55,10 +55,15 @@ T("a reviewed change lands in a loaded, unsaved buffer and waits for decisions",
   eq(vim.bo[buf].modified, true)
   eq(Review.pending(agent), 2)
   ok(require("dyadic.bars").composer_winbar(agent):find("review: 2 hunks", 1, true))
+  local from = api.nvim_get_current_win()
   H.settle()
   eq(H.bridge_answer(log, id), nil)
-  -- No window changed for the review.
-  ok(#vim.fn.win_findbuf(buf) == 0)
+  -- From the pair, the file shows in the main area at the first hunk; focus stays.
+  local main = require("dyadic.sidebar").main_window()
+  eq(vim.fn.win_findbuf(buf), { main })
+  eq(api.nvim_win_get_cursor(main)[1], 1)
+  eq(api.nvim_get_current_win(), from)
+  eq(api.nvim_win_get_buf(from), agent.history_buf)
   -- Accept the first hunk at the cursor, reject the second with a reason.
   show(buf)
   api.nvim_win_set_cursor(0, { 1, 0 })
@@ -97,6 +102,30 @@ T("accepting everything adds a note; rejecting everything is an error", function
   local outcome = answer(log, second)
   eq(outcome.error, "The user rejected the change to " .. vim.fn.fnamemodify(path, ":~") .. ".\n- line 2 (no reason)")
   eq(lines(buf), { "ONE", "two" })
+end)
+
+T("a review that starts while you work in the main area leaves the windows alone", function()
+  local agent, log = open()
+  local main = require("dyadic.sidebar").main_window()
+  api.nvim_set_current_win(main)
+  local before = api.nvim_win_get_buf(main)
+  local path = file({ "a", "b" })
+  propose(agent, log, path, "a\nB\n")
+  H.settle()
+  eq(api.nvim_win_get_buf(main), before)
+  eq(api.nvim_get_current_win(), main)
+  eq(_G.notes[#_G.notes].msg, "Dyadic: a review waits in " .. vim.fn.fnamemodify(path, ":~:.") .. " (:Dyadic review)")
+  -- Already in a window of this tab: nothing moves, and nothing is said.
+  local buf = require("dyadic.files").buffer(path)
+  Review.decide(Review.first(agent), true, true)
+  vim.cmd("vsplit")
+  api.nvim_win_set_buf(0, buf)
+  local notes = #_G.notes
+  api.nvim_set_current_win(H.history_win(agent))
+  propose(agent, log, path, "A\nB\n")
+  H.settle()
+  eq(#vim.fn.win_findbuf(buf), 1)
+  eq(#_G.notes, notes)
 end)
 
 T("the review action shows the agent's next undecided hunk", function()
@@ -518,7 +547,8 @@ T("a removal is picked from the line below it, or the last line at the end", fun
   show(buf)
   eq(lines(buf), { "a", "b", "c" })
   local rows = virtual(buf)
-  eq(rows[1], { "head" })
+  -- Below the banner of the hunk at the cursor.
+  eq(rows[1][#rows[1]], "head")
   eq(rows[3], { "middle", "tail" })
   press("gs", 3)
   eq(lines(buf), { "a", "b", "middle", "c" })

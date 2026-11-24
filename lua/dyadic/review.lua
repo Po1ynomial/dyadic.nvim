@@ -1059,6 +1059,41 @@ local function watch(review)
   })
 end
 
+-- Bring a starting review to the user. From the agent's pair in this tab, or a float over
+-- it, the file shows in the main area's window used last, at the first hunk, and focus
+-- stays; from anywhere else no window changes, and a notice says where the review waits.
+-- Nothing happens when the file is already in a window of this tab.
+local function present(review)
+  local tab = api.nvim_get_current_tabpage()
+  for _, win in ipairs(vim.fn.win_findbuf(review.buf)) do
+    if api.nvim_win_get_tabpage(win) == tab then
+      return
+    end
+  end
+  local agent = review.agent
+  local current = api.nvim_get_current_win()
+  local shown = api.nvim_win_get_buf(current)
+  local inside = require("dyadic.composer").anchor(agent)
+    and (shown == agent.history_buf or shown == agent.composer_buf or api.nvim_win_get_config(current).relative ~= "")
+  if not inside then
+    vim.notify(
+      string.format("Dyadic: a review waits in %s (:Dyadic review)", vim.fn.fnamemodify(review.path, ":~:.")),
+      vim.log.levels.INFO
+    )
+    return
+  end
+  local win = require("dyadic.sidebar").main_window()
+  if not pcall(api.nvim_win_set_buf, win, review.buf) then
+    return
+  end
+  api.nvim_win_call(win, function()
+    local hunk = next_from(review, 0)
+    if hunk then
+      jump_to(review, hunk)
+    end
+  end)
+end
+
 local function begin(agent, buf, path, content, reply, created)
   -- An empty buffer's one empty line is not content.
   local original = content_lines(buf)
@@ -1094,6 +1129,7 @@ local function begin(agent, buf, path, content, reply, created)
   bind(review)
   watch(review)
   follow_cursor(review)
+  present(review)
   agent:render()
 end
 

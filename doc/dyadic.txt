@@ -686,13 +686,18 @@ about unsaved changes.
 Review                                                        *dyadic-review*
 
 With review on for a file, an agent's `edit` or `write` opens the file in a
-listed buffer if needed, without changing any window, and applies the change
-there as ordinary edits. Each hunk's added lines are highlighted, with the
-changed words stronger, and its removed lines show above them, wrapped like
-the window wraps text. The tool call waits until you have decided every
-hunk. Reviewed changes are never saved; save when you are ready. Commands
-that read from disk, such as tests, do not see them until then, and the
-model knows this.
+listed buffer if needed and applies the change there as ordinary edits.
+Each hunk's added lines are highlighted, with the changed words stronger,
+and its removed lines show above them, wrapped like the window wraps text.
+The tool call waits until you have decided every hunk. Reviewed changes are
+never saved; save when you are ready. Commands that read from disk, such as
+tests, do not see them until then, and the model knows this.
+
+When a review starts while you are in the agent's pair, or a float over it,
+the file shows in the main area's window you used last, at the first hunk.
+Your cursor stays where it is; `:Dyadic toggle` takes you there. Working
+elsewhere, no window changes and a notice says which file waits. A file
+already in a window of the tab stays as it is.
 
 The composer's bar shows `review: N hunks` while hunks are undecided, and
 the `review` action or `:Dyadic review` shows the next one. The keys act on
