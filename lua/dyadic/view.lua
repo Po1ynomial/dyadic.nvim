@@ -212,6 +212,7 @@ local actions = {
   resume = { "Resume", nil, "composer" },
   tree = { "Tree", nil, "both" },
   fork = { "Fork", nil, "both" },
+  review = { "Review", nil, "both" },
   toggle_group = { "ToggleGroup", "za", "history" },
   detail = { "Detail", "K", "history" },
   next_message = { "NextMessage", "g]", "history" },

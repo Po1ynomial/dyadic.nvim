@@ -341,9 +341,10 @@ an empty draft, each one just starts Insert mode. CTRL-W j and CTRL-W k move
 between the history and the composer, which always sits right below it.
 
 Actions without a default key: `thinking`, `cycle_model`, `copy`,
-`settings`, `new`, `resume`, `tree`, `fork`. Every action has a buffer-local
-<Plug> mapping named after it, for example `<Plug>(DyadicSubmit)`,
-`<Plug>(DyadicToggleGroup)`, `<Plug>(DyadicCopy)`.
+`settings`, `new`, `resume`, `tree`, `fork`, and `review`, which shows the
+agent's next undecided review hunk (|dyadic-review|). Every action has a
+buffer-local <Plug> mapping named after it, for example
+`<Plug>(DyadicSubmit)`, `<Plug>(DyadicToggleGroup)`, `<Plug>(DyadicCopy)`.
 
 Override or disable defaults by action name:
 >lua
@@ -694,13 +695,14 @@ that read from disk, such as tests, do not see them until then, and the
 model knows this.
 
 The composer's bar shows `review: N hunks` while hunks are undecided, and
-`:Dyadic review` shows the next one. The keys act on the hunk at the cursor:
-the cursor is on one of its added lines, or, for a hunk that only removes
-lines, on the line below them (the last line when they were at the end).
-That hunk shows a banner: `Review 1/3` and the keys that do something
-there, so with one undecided hunk left it leaves out accepting all and
-moving. Elsewhere the keys change nothing and say so. After a decision the
-cursor moves to the next undecided hunk. In the reviewed buffer:
+the `review` action or `:Dyadic review` shows the next one. The keys act on
+the hunk at the cursor: the cursor is on one of its added lines, or, for a
+hunk that only removes lines, on the line below them (the last line when
+they were at the end). That hunk shows a banner: `Review 1/3` and the keys
+that do something there, so with one undecided hunk left it leaves out
+accepting all and moving. Elsewhere the keys change nothing and say so.
+After a decision the cursor moves to the next undecided hunk. In the
+reviewed buffer:
 
   Key   Name            Action ~
   ]c    `next`            Next undecided hunk
