@@ -234,6 +234,37 @@ function H.bridge(agent, log, payload)
   return answer
 end
 
+-- Run fn(lua, input) against a child Neovim with dyadic and these helpers loaded, and stop
+-- the child afterwards. lua(code, ...) runs code in the child and returns its value;
+-- input(keys) types keys there. Keys typed inside a test case wait until the case ends, so
+-- only a child can wait in the cmdline or Insert mode while timers and RPC events arrive.
+function H.child(fn)
+  local child = vim.fn.jobstart({ vim.v.progpath, "--clean", "--embed", "--headless" }, { rpc = true })
+  local function lua(code, ...)
+    return vim.rpcrequest(child, "nvim_exec_lua", code, { ... })
+  end
+  local function input(keys)
+    vim.rpcrequest(child, "nvim_input", keys)
+  end
+  local ok_run, err = pcall(function()
+    lua(
+      [[
+      local root = ...
+      vim.opt.runtimepath:prepend(root)
+      vim.o.swapfile = false
+      _G.H = dofile(root .. "/tests/helpers.lua")
+    ]],
+      H.root
+    )
+    fn(lua, input)
+  end)
+  pcall(lua, "require('dyadic').shutdown()")
+  vim.fn.jobstop(child)
+  if not ok_run then
+    error(err, 0)
+  end
+end
+
 -- Requests dyadic sent to the fake pi, decoded from the scenario log.
 function H.sent(log)
   local records = {}

@@ -364,8 +364,8 @@ end)
 -- Stream text into a run with 'smoothscroll' on while the history's cursor is on its last
 -- line, and check after every render that the window shows the output's end on its last
 -- row and keeps that view until the next change.
-local function check_following(focus_composer)
-  vim.o.smoothscroll = true
+-- Six finished runs, more than the history window shows.
+local function six_runs()
   local entries = {}
   for i = 1, 6 do
     entries[#entries + 1] = { role = "user", content = "question " .. i, timestamp = i * 10 }
@@ -374,7 +374,19 @@ local function check_following(focus_composer)
       { { type = "text", text = "answer " .. i .. "\nline two with `code` and **bold**\nline three" } }
     )
   end
-  local agent = H.open({ entries = H.chain(entries) })
+  return H.chain(entries)
+end
+
+-- The window's view, and the screen rows from its top to the end of the buffer.
+local function view_of(win)
+  local saved = vim.api.nvim_win_call(win, vim.fn.winsaveview)
+  local rows = vim.api.nvim_win_text_height(win, { start_row = saved.topline - 1, start_vcol = saved.skipcol }).all
+  return saved, rows
+end
+
+local function check_following(focus_composer)
+  vim.o.smoothscroll = true
+  local agent = H.open({ entries = six_runs() })
   H.settle()
   local win = H.history_win(agent)
   vim.api.nvim_win_set_cursor(win, { vim.api.nvim_buf_line_count(agent.history_buf), 0 })
@@ -427,6 +439,169 @@ end)
 
 T("output follows while the composer has the focus", function()
   check_following(true)
+end)
+
+-- A group of tools collapses when text follows it, so the history shrinks under a window that
+-- follows it; the window fills again, and the output's end stays on its last row.
+local function check_shrinking(smooth, tail)
+  vim.o.smoothscroll = smooth
+  local agent = H.open({ entries = six_runs() })
+  H.settle()
+  local win = H.history_win(agent)
+  vim.api.nvim_set_current_win(win)
+  vim.api.nvim_win_set_cursor(win, { vim.api.nvim_buf_line_count(agent.history_buf), 0 })
+  local events = {
+    { type = "agent_start" },
+    { type = "message_start", message = { role = "user", content = "go", timestamp = 100 } },
+    { type = "message_end", message = { role = "user", content = "go", timestamp = 100 } },
+    { type = "message_start", message = { role = "assistant", content = {}, timestamp = 101 } },
+  }
+  for i = 0, 7 do
+    local call = { type = "toolCall", id = "c" .. i, name = "bash", arguments = { command = "make " .. i } }
+    vim.list_extend(events, {
+      {
+        type = "message_update",
+        assistantMessageEvent = { type = "toolcall_start", contentIndex = i, id = call.id, toolName = "bash" },
+      },
+      { type = "message_update", assistantMessageEvent = { type = "toolcall_end", contentIndex = i, toolCall = call } },
+    })
+  end
+  H.emit(agent, events)
+  H.settle()
+  vim.cmd("redraw")
+  local before = vim.api.nvim_buf_line_count(agent.history_buf)
+  H.emit(agent, {
+    { type = "message_update", assistantMessageEvent = { type = "text_start", contentIndex = 8 } },
+    { type = "message_update", assistantMessageEvent = { type = "text_delta", contentIndex = 8, delta = tail } },
+  })
+  H.settle()
+  vim.cmd("redraw")
+  local last = vim.api.nvim_buf_line_count(agent.history_buf)
+  ok(last < before, "the history did not shrink: " .. before .. " -> " .. last)
+  local saved, rows = view_of(win)
+  local height = vim.fn.getwininfo(win)[1].height
+  eq(saved.lnum, last)
+  if smooth then
+    eq(rows, height, "rows from the window's top to the output's end")
+  else
+    -- Whole lines only: the end may stop short of the last row, by less than the top line.
+    local top_rows =
+      vim.api.nvim_win_text_height(win, { start_row = saved.topline - 1, end_row = saved.topline - 1 }).all
+    ok(rows <= height and rows > height - top_rows, "rows from the window's top to the output's end: " .. rows)
+  end
+  require("dyadic.view").render(agent)
+  vim.cmd("redraw")
+  eq(view_of(win), saved, "the view moved without new output")
+end
+
+local WRAPPING = "done, with a tail long enough to wrap across the window's width at least once"
+
+T("a shrinking history fills the window again", function()
+  check_shrinking(false, "done")
+  check_shrinking(false, WRAPPING)
+end)
+
+T("a shrinking history fills the window again under 'smoothscroll'", function()
+  check_shrinking(true, "done")
+  check_shrinking(true, WRAPPING)
+end)
+
+T("output follows the end of a line taller than the window", function()
+  vim.o.smoothscroll = true
+  local agent = open_finished()
+  local win = H.history_win(agent)
+  vim.api.nvim_set_current_win(win)
+  vim.api.nvim_win_set_cursor(win, { vim.api.nvim_buf_line_count(agent.history_buf), 0 })
+  H.emit(agent, {
+    { type = "agent_start" },
+    { type = "message_start", message = { role = "assistant", content = {}, timestamp = 101, model = "m" } },
+    { type = "message_update", assistantMessageEvent = { type = "text_start", contentIndex = 0 } },
+  })
+  for i = 1, 3 do
+    local delta = string.rep("word" .. i .. " ", 200)
+    H.emit(
+      agent,
+      { { type = "message_update", assistantMessageEvent = { type = "text_delta", contentIndex = 0, delta = delta } } }
+    )
+    H.settle()
+    vim.cmd("redraw")
+    local saved, rows = view_of(win)
+    eq(saved.topline, vim.api.nvim_buf_line_count(agent.history_buf), "the top line after piece " .. i)
+    eq(rows, vim.fn.getwininfo(win)[1].height, "the output's end is off the last row after piece " .. i)
+    require("dyadic.view").render(agent)
+    vim.cmd("redraw")
+    eq(view_of(win), saved, "the view moved without new output after piece " .. i)
+  end
+end)
+
+-- Following output from events must leave the user's mode alone: plugins take a ModeChanged
+-- from the cmdline to Normal mode for leaving the cmdline. The child waits in the mode while
+-- a timer streams lines into the run, as pi does while the user types.
+local function check_mode_kept(keys, smoothscroll)
+  local mode = keys == ":" and "c" or "i"
+  H.child(function(lua, input)
+    lua(
+      [[
+      local focus_composer, smoothscroll = ...
+      vim.o.smoothscroll = smoothscroll
+      _G.agent = H.open({})
+      H.emit(agent, {
+        { type = "agent_start" },
+        { type = "message_start", message = { role = "assistant", content = {}, timestamp = 101, model = "m" } },
+        { type = "message_update", assistantMessageEvent = { type = "text_start", contentIndex = 0 } },
+      })
+      local win = H.history_win(agent)
+      _G.before = vim.api.nvim_buf_line_count(agent.history_buf)
+      vim.api.nvim_win_set_cursor(win, { before, 0 })
+      vim.api.nvim_set_current_win(focus_composer and require("dyadic.composer").window(agent) or win)
+      _G.changes = {}
+      vim.api.nvim_create_autocmd("ModeChanged", {
+        callback = function(ev)
+          table.insert(changes, ev.match)
+        end,
+      })
+      local n, timer = 0, vim.uv.new_timer()
+      timer:start(100, 50, vim.schedule_wrap(function()
+        n = n + 1
+        if n > 4 then
+          return timer:stop()
+        end
+        local delta = "\ntick " .. n .. " with a tail long enough to wrap across the window's width at least once"
+        agent:request("test_emit", {
+          events = {
+            { type = "message_update", assistantMessageEvent = { type = "text_delta", contentIndex = 0, delta = delta } },
+          },
+        }, function() end)
+      end))
+    ]],
+      mode == "i",
+      smoothscroll
+    )
+    input(keys)
+    vim.wait(600)
+    eq(
+      lua([[
+        local last = vim.api.nvim_buf_line_count(agent.history_buf)
+        return {
+          mode = vim.api.nvim_get_mode().mode,
+          changes = changes,
+          grew = last > before,
+          following = vim.api.nvim_win_get_cursor(H.history_win(agent))[1] == last,
+        }
+      ]]),
+      { mode = mode, changes = { "n:" .. mode }, grew = true, following = true }
+    )
+  end)
+end
+
+T("following output leaves the cmdline alone", function()
+  check_mode_kept(":", false)
+  check_mode_kept(":", true)
+end)
+
+T("following output leaves Insert mode alone", function()
+  check_mode_kept("i", false)
+  check_mode_kept("i", true)
 end)
 
 T("g] and g[ jump between speakers", function()

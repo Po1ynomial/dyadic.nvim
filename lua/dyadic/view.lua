@@ -799,25 +799,33 @@ local function set_row(buf, row)
   end
 end
 
-local SCROLL_DOWN = vim.keycode("<C-e>")
-
--- Put the cursor on the last line and that line's end on the window's last row. zb fills
--- the window again after the history shrank, but it shows whole lines only. With
--- 'smoothscroll', when they do not fit exactly, the last line ends below the window, and
--- Neovim later scrolls it into view by screen rows; the next zb would undo that. Scroll by
--- screen rows right away instead, so each render leaves the view Neovim keeps. Call in `win`.
+-- Put the cursor at the end of the last line, which scrolls the window until that end shows
+-- on its last row, by screen rows under 'smoothscroll'; from the line's start, a line taller
+-- than the window would show its start. When the history shrank and its end rose above the
+-- last row, start the window at the line that fills it again, and Neovim scrolls the rest
+-- as it does for the cursor. No :normal here: run from an event, it leaves the user's mode
+-- and enters it again, and plugins take the ModeChanged for leaving the cmdline. Call in `win`.
 local function follow(win, last)
-  api.nvim_win_set_cursor(win, { last, 0 })
-  vim.cmd("normal! zb")
-  if not vim.wo[win].smoothscroll then
+  local line = api.nvim_buf_get_lines(api.nvim_win_get_buf(win), last - 1, last, false)[1] or ""
+  api.nvim_win_set_cursor(win, { last, #line })
+  local view = vim.fn.winsaveview()
+  if view.topline == 1 then
     return
   end
-  local view = vim.fn.winsaveview()
-  local rows = api.nvim_win_text_height(win, { start_row = view.topline - 1, start_vcol = view.skipcol }).all
-  local extra = rows - vim.fn.getwininfo(win)[1].height
-  if extra > 0 then
-    vim.cmd("normal! " .. extra .. SCROLL_DOWN)
+  local height = vim.fn.getwininfo(win)[1].height
+  local function rows(first, final)
+    return api.nvim_win_text_height(win, { start_row = first - 1, end_row = final - 1 }).all
   end
+  if api.nvim_win_text_height(win, { start_row = view.topline - 1, start_vcol = view.skipcol }).all >= height then
+    return
+  end
+  local top, used = last, rows(last, last)
+  while top > 1 and used < height do
+    top = top - 1
+    used = used + rows(top, top)
+  end
+  view.topline, view.skipcol, view.topfill = top, 0, 0
+  vim.fn.winrestview(view)
 end
 
 -- Write only the changed line range, then re-apply the overlay rows from the first one that
