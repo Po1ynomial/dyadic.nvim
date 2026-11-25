@@ -504,7 +504,7 @@ local function create_buffer(agent, ft, suffix, editable)
 end
 
 function M.new(agent)
-  agent._view = { dialogs = {}, seen_dialogs = {}, details = {}, rows_by_line = {}, disposed = false }
+  agent._view = { dialogs = {}, seen_dialogs = {}, details = {}, rows_by_line = {}, followed = {}, disposed = false }
   agent.widgets = agent.widgets or {}
   agent.statuses = agent.statuses or {}
   agent.history_buf = create_buffer(agent, "dyadic", "history", false)
@@ -542,6 +542,7 @@ function M.new(agent)
     group = agent._view.group,
     callback = function(ev)
       window_states[tonumber(ev.match)] = nil
+      agent._view.followed[tonumber(ev.match)] = nil
     end,
   })
   -- The history's winbar fits its window's width.
@@ -853,7 +854,8 @@ local function write(agent, model, previous)
   while first <= #old_lines and first <= #lines and old_lines[first] == lines[first] do
     first = first + 1
   end
-  if first <= #old_lines or first <= #lines then
+  local lines_changed = first <= #old_lines or first <= #lines
+  if lines_changed then
     local last_old, last_new = #old_lines, #lines
     while last_old >= first and last_new >= first and old_lines[last_old] == lines[last_new] do
       last_old, last_new = last_old - 1, last_new - 1
@@ -891,12 +893,18 @@ local function write(agent, model, previous)
     end
   end
   agent._view.rows_by_line = by_line
-  -- Follow output only in windows whose cursor was on the last line.
+  -- Follow output only in windows whose cursor was on the last line, and only when the lines
+  -- or the window's size changed, so the cursor stays where the user put it on that line.
+  local followed = agent._view.followed
   for _, snapshot in ipairs(snapshots) do
     if valid_win(snapshot.win) then
       api.nvim_win_call(snapshot.win, function()
         if snapshot.bottom then
-          follow(snapshot.win, #lines)
+          local size = api.nvim_win_get_width(snapshot.win) .. "x" .. api.nvim_win_get_height(snapshot.win)
+          if lines_changed or followed[snapshot.win] ~= size then
+            follow(snapshot.win, #lines)
+            followed[snapshot.win] = size
+          end
         else
           snapshot.view.lnum = math.min(snapshot.view.lnum, #lines)
           vim.fn.winrestview(snapshot.view)

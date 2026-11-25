@@ -534,6 +534,36 @@ T("output follows the end of a line taller than the window", function()
   end
 end)
 
+T("a render without new lines leaves the cursor on the last line alone", function()
+  local agent = open_finished()
+  local win = H.history_win(agent)
+  vim.api.nvim_set_current_win(win)
+  vim.api.nvim_win_set_cursor(win, { vim.api.nvim_buf_line_count(agent.history_buf), 0 })
+  local View = require("dyadic.view")
+  H.emit(agent, {
+    { type = "agent_start" },
+    { type = "message_start", message = { role = "assistant", content = {}, timestamp = 101, model = "m" } },
+    { type = "message_update", assistantMessageEvent = { type = "text_start", contentIndex = 0 } },
+    { type = "message_update", assistantMessageEvent = { type = "text_delta", contentIndex = 0, delta = "one two" } },
+  })
+  H.settle()
+  local last = vim.api.nvim_buf_line_count(agent.history_buf)
+  eq(vim.api.nvim_win_get_cursor(win), { last, #"one two" - 1 })
+  vim.api.nvim_win_set_cursor(win, { last, 0 })
+  View.render(agent)
+  eq(vim.api.nvim_win_get_cursor(win), { last, 0 }, "a render without new lines moved the cursor")
+  -- A resized window follows again.
+  vim.api.nvim_win_set_width(win, vim.api.nvim_win_get_width(win) + 4)
+  View.render(agent)
+  eq(vim.api.nvim_win_get_cursor(win), { last, #"one two" - 1 })
+  vim.api.nvim_win_set_cursor(win, { last, 0 })
+  H.emit(agent, {
+    { type = "message_update", assistantMessageEvent = { type = "text_delta", contentIndex = 0, delta = " three" } },
+  })
+  H.settle()
+  eq(vim.api.nvim_win_get_cursor(win), { last, #"one two three" - 1 }, "new output did not move the cursor")
+end)
+
 -- Following output from events must leave the user's mode alone: plugins take a ModeChanged
 -- from the cmdline to Normal mode for leaving the cmdline. The child waits in the mode while
 -- a timer streams lines into the run, as pi does while the user types.
