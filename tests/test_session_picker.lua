@@ -97,6 +97,46 @@ T("the scope key shows every directory grouped, this one first", function()
   eq(vim.fn.foldclosed(3), -1)
 end)
 
+-- Sessions load in the background while the user types in the prompt; rendering them must
+-- leave Insert mode alone, as plugins take a ModeChanged to Normal mode for leaving it.
+T("rendering loaded sessions leaves the prompt's Insert mode alone", function()
+  local dir = sessions({
+    { id = "here", age = 100 },
+    { id = "there", cwd = "/elsewhere", age = 10 },
+  })
+  H.child(function(lua)
+    lua(
+      [[
+      local dir = ...
+      H.configure({}, { args = { "--session-dir", dir } })
+      require("dyadic").command("-r")
+      _G.p = H.session_picker()
+    ]],
+      dir
+    )
+    lua("require('dyadic.picker').focus_search(p)")
+    vim.wait(100)
+    eq(lua("return vim.api.nvim_get_mode().mode"), "i")
+    lua([[
+      _G.changes = {}
+      vim.api.nvim_create_autocmd("ModeChanged", {
+        callback = function(ev)
+          table.insert(changes, ev.match)
+        end,
+      })
+      require("dyadic.session_picker").set_scope(p, "all")
+    ]])
+    vim.wait(500)
+    eq(
+      lua([[
+        local state = p.scopes[p.scope]
+        return { mode = vim.api.nvim_get_mode().mode, changes = changes, loaded = state.done and not p.render_pending }
+      ]]),
+      { mode = "i", changes = {}, loaded = true }
+    )
+  end)
+end)
+
 T("sorts, filters named sessions, and searches", function()
   local dir = sessions({
     { id = "a", prompt = "fix the parser", age = 10 },

@@ -210,8 +210,11 @@ function M.render(p, rows, cursor, empty)
   for _, span in ipairs(spans) do
     api.nvim_buf_set_extmark(p.list_buf, ns, span[1], span[2], { end_col = span[3], hl_group = span[4] })
   end
+  -- Rows load in the background while the user types in the search bar: without autocmds,
+  -- :normal from an event does not report leaving Insert mode and entering it again, which
+  -- plugins take for leaving it. zE has no Ex command.
   api.nvim_win_call(p.list_win, function()
-    vim.cmd("silent! normal! zE")
+    vim.cmd("silent! noautocmd normal! zE")
     -- New folds start closed, and a range inside a closed fold grows to the whole fold, so
     -- create inner folds first: from the last row up, each new fold only encloses others.
     for index = #rows, 1, -1 do
@@ -220,7 +223,7 @@ function M.render(p, rows, cursor, empty)
         vim.cmd(string.format("silent! %d,%dfold", index, last))
       end
     end
-    vim.cmd("silent! normal! zR")
+    vim.cmd("silent! %foldopen!")
   end)
   if #rows > 0 then
     api.nvim_win_set_cursor(p.list_win, { math.max(1, math.min(cursor or 1, #rows)), 0 })
