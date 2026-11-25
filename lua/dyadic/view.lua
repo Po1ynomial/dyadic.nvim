@@ -696,6 +696,14 @@ local function composer_bar(agent)
   end
 end
 
+-- Neovim draws no window while the cmdline is open, so the output, the spinner, and the
+-- footer would stand still until it closes. Draw what changed now.
+local function draw_under_cmdline()
+  if api.nvim_get_mode().mode:sub(1, 1) == "c" then
+    api.nvim__redraw({ flush = true })
+  end
+end
+
 -- While the agent works and is shown, the spinner turns and the run timer in the history
 -- counts up once a second.
 local function spin(agent)
@@ -712,6 +720,7 @@ local function spin(agent)
         if view.spinner then
           view.frame = view.frame % #Bars.SPINNER + 1
           composer_bar(agent)
+          draw_under_cmdline()
           if view.frame == 1 and agent.active then
             agent:render()
           end
@@ -977,6 +986,7 @@ function M.render(agent, opts)
   write(agent, model, previous)
   statuslines(agent)
   Detail.refresh(agent)
+  draw_under_cmdline()
 end
 
 -- A buffer reloaded with :e lost its text and marks: the composer gets back the draft it had

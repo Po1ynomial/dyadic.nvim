@@ -624,6 +624,33 @@ local function check_mode_kept(keys, smoothscroll)
   end)
 end
 
+-- Neovim draws no window while the cmdline is open; dyadic asks it to, for the spinner and
+-- for each render. A headless child has no screen, so count the requests.
+T("an agent's windows are drawn while the cmdline is open", function()
+  H.child(function(lua, input)
+    lua([[
+      _G.agent = H.open({})
+      local redraw = vim.api.nvim__redraw
+      _G.flushes = { c = 0, other = 0 }
+      vim.api.nvim__redraw = function(opts)
+        if opts.flush then
+          local key = vim.api.nvim_get_mode().mode == "c" and "c" or "other"
+          flushes[key] = flushes[key] + 1
+        end
+        return redraw(opts)
+      end
+      H.emit(agent, { { type = "agent_start" } })
+    ]])
+    vim.wait(300)
+    eq(lua("return flushes"), { c = 0, other = 0 }, "flushed outside the cmdline")
+    input(":")
+    vim.wait(500)
+    local flushes = lua("return flushes")
+    ok(flushes.c >= 3, "flushes while the cmdline is open: " .. flushes.c)
+    eq(flushes.other, 0)
+  end)
+end)
+
 T("following output leaves the cmdline alone", function()
   check_mode_kept(":", false)
   check_mode_kept(":", true)
