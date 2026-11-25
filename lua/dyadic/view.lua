@@ -666,8 +666,11 @@ render_widgets = function(agent)
     )
   end
   Composer.resize(agent)
+  -- Widgets above the draft show again in windows that showed the start of the draft. With
+  -- 'smoothscroll', a window can show its first line from a later screen row; restoring that
+  -- view would undo the resize, which shows the whole draft once it fits.
   for win, saved in pairs(snapshots) do
-    if saved.topline == 1 then
+    if saved.topline == 1 and saved.skipcol == 0 then
       saved.topfill = math.min(#above, math.max(0, api.nvim_win_get_height(win) - saved.lnum))
       api.nvim_win_call(win, function()
         vim.fn.winrestview(saved)

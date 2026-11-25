@@ -57,6 +57,68 @@ T("the composer grows with its text up to the limit", function()
   eq(api.nvim_win_get_height(win), 4)
 end)
 
+-- Type a new line after a draft that wraps once, in a child Neovim: only typed keys make
+-- the composer scroll while it is still small. Once it grew, it shows the whole draft: the
+-- first screen row of the first line, then the rest, and the footer on its last row.
+local function check_grown(smoothscroll)
+  local child = vim.fn.jobstart({ vim.v.progpath, "--clean", "--embed", "--headless" }, { rpc = true })
+  local function lua(code, ...)
+    return vim.rpcrequest(child, "nvim_exec_lua", code, { ... })
+  end
+  local ok_run, err = pcall(function()
+    lua(
+      [[
+      local root, smoothscroll = ...
+      vim.opt.runtimepath:prepend(root)
+      vim.o.swapfile = false
+      vim.o.columns, vim.o.lines = 60, 24
+      vim.o.smoothscroll = smoothscroll
+      local H = dofile(root .. "/tests/helpers.lua")
+      _G.agent = H.open(nil, { placement = "free" })
+      -- Sixteen words wrap once in the 60 columns.
+      _G.agent:set_draft(string.rep("word ", 16))
+      require("dyadic.view").focus(_G.agent, true)
+    ]],
+      H.root,
+      smoothscroll
+    )
+    vim.rpcrequest(child, "nvim_input", "A<CR>x")
+    vim.wait(200)
+    local shown = lua([[
+      local win = require("dyadic.composer").window(_G.agent)
+      vim.cmd("redraw")
+      local view = vim.api.nvim_win_call(win, vim.fn.winsaveview)
+      local pos, rows = vim.fn.win_screenpos(win), {}
+      for row = pos[1], pos[1] + vim.api.nvim_win_get_height(win) - 1 do
+        local cells = {}
+        for col = pos[2], pos[2] + vim.api.nvim_win_get_width(win) - 1 do
+          cells[#cells + 1] = vim.fn.screenstring(row, col)
+        end
+        rows[#rows + 1] = vim.trim(table.concat(cells))
+      end
+      return { topline = view.topline, skipcol = view.skipcol, rows = rows }
+    ]])
+    local words = vim.trim(string.rep("word ", 12))
+    eq(shown, {
+      topline = 1,
+      skipcol = 0,
+      rows = { "ready", words, "word word word word", "x", "fake-model" },
+    })
+  end)
+  vim.fn.jobstop(child)
+  if not ok_run then
+    error(err, 0)
+  end
+end
+
+T("a composer that grew shows its whole draft", function()
+  check_grown(false)
+end)
+
+T("a composer that grew shows its whole draft under 'smoothscroll'", function()
+  check_grown(true)
+end)
+
 T("resizing or moving the composer is undone", function()
   local agent = H.open(nil, { placement = "free" })
   local win = Composer.window(agent)
